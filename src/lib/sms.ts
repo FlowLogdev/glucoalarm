@@ -1,11 +1,29 @@
 import type { Env } from "../types";
 
-/**
- * Session 1 stub — logs instead of sending. Session 3 replaces the body with
- * a real Twilio API call (TWILIO_SID / TWILIO_AUTH / TWILIO_PHONE secrets).
- */
-export async function sendSMS(to: string, body: string, _env: Env): Promise<void> {
-  console.log(`[SMS stub] to=${to} body=${body}`);
+export class TwilioError extends Error {}
+
+export async function sendSMS(to: string, body: string, env: Env): Promise<void> {
+  if (env.SMS_MODE !== "twilio") {
+    console.log(`[SMS stub] to=${to} body=${body}`);
+    return;
+  }
+
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_AUTH}`),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, From: env.TWILIO_PHONE, Body: body }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new TwilioError(`Twilio send failed (${res.status}): ${text}`);
+  }
 }
 
 export function messageFor(

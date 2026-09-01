@@ -158,7 +158,13 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
   const body = messageFor(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {
-    await sendSMS(sub.phone_number, body, env);
+    try {
+      await sendSMS(sub.phone_number, body, env);
+    } catch (err) {
+      // Don't let one bad number block the rest, or skip alerts_log below
+      // and cause a resend storm next cron run.
+      console.error(`sendSMS failed for ${person.id} -> ${sub.phone_number}:`, err);
+    }
   }
 
   await env.DB
@@ -171,7 +177,13 @@ async function pollAll(env: Env): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const people = await env.DB.prepare(`SELECT * FROM people`).all<PersonRow>();
   for (const person of people.results) {
-    await pollPerson(person, env, now);
+    try {
+      await pollPerson(person, env, now);
+    } catch (err) {
+      // One person's Dexcom/DB failure (bad session, network blip) shouldn't
+      // stop the other person from being polled this cycle.
+      console.error(`pollPerson failed for ${person.id}:`, err);
+    }
   }
 }
 

@@ -10,8 +10,11 @@ Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`.
   behind the same `DexcomClient` interface, with per-person session caching
   in D1 and `dexcom_password` encrypted at rest (AES-256-GCM). Switch modes
   via the `DEXCOM_MODE` var — Worker code is identical either way.
-- **Session 3** (pending): real Twilio sending — `src/lib/sms.ts` currently
-  logs instead of sending.
+- **Session 3** (done): real Twilio sending in `src/lib/sms.ts`, gated by
+  `SMS_MODE` (`"log"` vs `"twilio"`) so nothing sends for real until you
+  opt in. A failed send for one phone number is caught and logged — it
+  doesn't block other subscribers or the other monitored person, and the
+  alert is still recorded so cooldown logic doesn't resend-storm next cron.
 
 ## Local dev
 
@@ -73,19 +76,48 @@ stays on your machine.
    check `readings` in D1 — you should see your actual glucose value, not a
    random walk.
 
+## Turning on real Twilio sending
+
+1. Add at least one row to `phone_subscribers` per person (see the Twilio
+   secrets step below first, or you'll get real 401s while testing):
+   ```
+   npx wrangler d1 execute watchgluco-db --local --command \
+     "INSERT INTO phone_subscribers (person_id, phone_number, label) VALUES ('dad', '+13055551234', 'my phone');"
+   ```
+   Phone numbers must be E.164 format (`+1` + 10 digits for US numbers).
+
+2. Set the three Twilio secrets — run these yourself, the prompt keeps the
+   values off the terminal history and out of this chat:
+   ```
+   npx wrangler secret put TWILIO_SID --local     # starts with AC...
+   npx wrangler secret put TWILIO_AUTH --local    # Auth Token
+   npx wrangler secret put TWILIO_PHONE --local   # your Twilio number, e.g. +13055550100
+   ```
+   Repeat without `--local` once you're ready to set them on the deployed
+   Worker.
+
+3. Flip `SMS_MODE = "twilio"` in `wrangler.toml` (or override locally with
+   `wrangler dev --var SMS_MODE:twilio` without editing the file).
+
+4. Trigger a real alert to confirm delivery — temporarily drop a threshold
+   below the current reading, poll, then put it back:
+   ```
+   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 0 WHERE id = 'dad';"
+   curl http://localhost:8787/__poll
+   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 180 WHERE id = 'dad';"
+   ```
+
 ## Deploying
 
 1. `npx wrangler d1 create watchgluco-db` and paste the returned `database_id`
    into `wrangler.toml` (currently `REPLACE_WITH_D1_DATABASE_ID`)
 2. `npm run db:migrate:remote`
-3. `npx wrangler secret put DEXCOM_ENC_KEY` (see above)
+3. `npx wrangler secret put DEXCOM_ENC_KEY` and the three `TWILIO_*` secrets
+   (see above, both without `--local`)
 4. `npm run deploy`
 
 ## What's next (per the build spec)
 
-- **Session 3:** replace the `sendSMS` stub in `src/lib/sms.ts` with real
-  Twilio calls, add `TWILIO_SID`/`TWILIO_AUTH`/`TWILIO_PHONE` via
-  `wrangler secret put`
 - **Session 4:** Next.js dashboard reading from this D1 database
 - **Session 5:** auth + deploy to watchgluco.com
 - **Session 6:** mobile app (Expo)
