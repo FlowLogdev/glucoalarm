@@ -1,7 +1,4 @@
-export interface Env {
-  DB: D1Database;
-  DEXCOM_MODE: string;
-}
+import type { Env } from "../types";
 
 /**
  * Session 1 stub — logs instead of sending. Session 3 replaces the body with

@@ -11,5 +11,13 @@ database_name = "watchgluco-db"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [vars]
-# Set to "mock" for Session 1 testing, "dexcom" once real integration lands.
+# Set to "mock" for local/testing, "dexcom" to poll the real Dexcom Share API.
 DEXCOM_MODE = "mock"
+# share2.dexcom.com for US accounts, shareous1.dexcom.com for outside-US accounts.
+DEXCOM_BASE_URL = "https://share2.dexcom.com"
+# Public Dexcom Share follower application ID (not a secret) — override only
+# if you're using a different registered app.
+DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
+
+# Secrets (not stored here — set via `wrangler secret put`):
+#   DEXCOM_ENC_KEY   base64 32-byte AES-GCM key, encrypts dexcom_password at rest
