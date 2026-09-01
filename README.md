@@ -44,4 +44,3 @@ npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_
 - **Session 4:** Next.js dashboard reading from this D1 database
 - **Session 5:** auth + deploy to watchgluco.com
 - **Session 6:** mobile app (Expo)
-# glucoalarm
