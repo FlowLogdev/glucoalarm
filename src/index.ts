@@ -4,6 +4,7 @@ import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyReading, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
 import { sendSMS, messageFor } from "./lib/sms";
 import { decrypt } from "./lib/crypto";
+import { handleApi } from "./api";
 import type { Env } from "./types";
 
 interface PersonRow extends Person {
@@ -193,6 +194,9 @@ export default {
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
+    const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
+    if (apiResponse) return apiResponse;
+
     // Manual trigger for local testing: curl http://localhost:8787/__poll
     const url = new URL(request.url);
     if (url.pathname === "/__poll") {

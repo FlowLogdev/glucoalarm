@@ -15,8 +15,14 @@ Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`.
   opt in. A failed send for one phone number is caught and logged — it
   doesn't block other subscribers or the other monitored person, and the
   alert is still recorded so cooldown logic doesn't resend-storm next cron.
+- **Session 4** (done): Next.js dashboard in `web/` — `/` (both people,
+  status colors, trend arrows, polls every 30s), `/history/[personId]`
+  (recharts line chart, 3h/24h/7d toggle), `/settings` (thresholds + phone
+  subscriber management). It talks to the Worker's `/api/*` routes
+  (`src/api.ts`) rather than touching D1 directly — Cloudflare credentials
+  never need to exist on Vercel. No auth yet (Session 5).
 
-## Local dev
+## Local dev — Worker
 
 ```
 npm install
@@ -107,8 +113,28 @@ stays on your machine.
    npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 180 WHERE id = 'dad';"
    ```
 
+## Local dev — dashboard (`web/`)
+
+```
+cd web
+npm install
+cp .env.local.example .env.local   # NEXT_PUBLIC_API_BASE_URL=http://localhost:8787
+npm run dev                        # next dev — uses :3000, or `-- -p <port>` if that's taken
+```
+
+Run the Worker (`npm run dev` from the repo root) alongside it — the
+dashboard is just a client of the Worker's `/api/*` routes, so both need to
+be up. `MockDexcomClient` readings will show up on the dashboard exactly
+like real ones would.
+
+**Not yet visually verified in a real browser** — pages compile, all
+`/api/*` routes were curl-tested directly and return the expected shapes,
+and CORS preflight to the Worker succeeds, but no screenshot/click-through
+pass has been done. Worth a manual look before calling Session 4 fully done.
+
 ## Deploying
 
+**Worker:**
 1. `npx wrangler d1 create watchgluco-db` and paste the returned `database_id`
    into `wrangler.toml` (currently `REPLACE_WITH_D1_DATABASE_ID`)
 2. `npm run db:migrate:remote`
@@ -116,8 +142,11 @@ stays on your machine.
    (see above, both without `--local`)
 4. `npm run deploy`
 
+**Dashboard (Session 5):** deploy `web/` to Vercel as its own project (root
+directory `web`), set `NEXT_PUBLIC_API_BASE_URL` to the deployed Worker's
+URL in Vercel's project env vars, then point watchgluco.com's DNS at Vercel.
+
 ## What's next (per the build spec)
 
-- **Session 4:** Next.js dashboard reading from this D1 database
 - **Session 5:** auth + deploy to watchgluco.com
 - **Session 6:** mobile app (Expo)
