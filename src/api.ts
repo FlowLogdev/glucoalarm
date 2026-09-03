@@ -1,7 +1,8 @@
-import { isStale, type Person } from "./lib/alerts";
+import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
+import { bearerToken, getSessionAdmin, login, logout } from "./auth";
 import type { Env } from "./types";
 
-type Status = "high" | "low" | "in_range" | "stale" | "no_data";
+type Status = Tier | "stale" | "no_data";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -14,7 +15,7 @@ function corsHeaders(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return new Response(res.body, { status: res.status, headers });
 }
 
@@ -25,25 +26,35 @@ function computeStatus(
 ): Status {
   if (!reading) return "no_data";
   if (isStale(now, reading.received_at, person.stale_minutes)) return "stale";
-  if (reading.value_mgdl <= person.low_threshold) return "low";
-  if (reading.value_mgdl >= person.high_threshold) return "high";
-  return "in_range";
+  return classifyTier(person, reading.value_mgdl);
+}
+
+const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes`;
+
+async function postLogin(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{ email?: string; password?: string }>();
+  if (!body.email || !body.password) {
+    return jsonResponse({ error: "email and password are required" }, 400);
+  }
+  const result = await login(env, body.email, body.password, now);
+  if (!result) return jsonResponse({ error: "invalid_credentials" }, 401);
+  return jsonResponse(result);
+}
+
+async function postLogout(env: Env, request: Request): Promise<Response> {
+  const token = bearerToken(request);
+  if (token) await logout(env, token);
+  return jsonResponse({ ok: true });
 }
 
 async function getPeople(env: Env): Promise<Response> {
-  const people = await env.DB
-    .prepare(
-      `SELECT id, name, low_threshold, high_threshold, stale_minutes FROM people`
-    )
-    .all<Person>();
+  const people = await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<Person>();
   return jsonResponse(people.results);
 }
 
 async function getLatest(env: Env, personId: string, now: number): Promise<Response> {
   const person = await env.DB
-    .prepare(
-      `SELECT id, name, low_threshold, high_threshold, stale_minutes FROM people WHERE id = ?`
-    )
+    .prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE id = ?`)
     .bind(personId)
     .first<Person>();
   if (!person) return jsonResponse({ error: "person_not_found" }, 404);
@@ -87,21 +98,37 @@ async function getSubscribers(env: Env, personId: string): Promise<Response> {
 async function postThresholds(env: Env, request: Request): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
-    low?: number;
-    high?: number;
+    safe_low?: number;
+    safe_high?: number;
+    critical_low?: number;
+    critical_high?: number;
     stale_minutes?: number;
   }>();
-  if (!body.person_id || body.low == null || body.high == null || body.stale_minutes == null) {
-    return jsonResponse({ error: "person_id, low, high, and stale_minutes are required" }, 400);
+  const { person_id, safe_low, safe_high, critical_low, critical_high, stale_minutes } = body;
+  if (
+    !person_id ||
+    safe_low == null ||
+    safe_high == null ||
+    critical_low == null ||
+    critical_high == null ||
+    stale_minutes == null
+  ) {
+    return jsonResponse(
+      { error: "person_id, safe_low, safe_high, critical_low, critical_high, and stale_minutes are required" },
+      400
+    );
   }
-  if (body.low >= body.high) {
-    return jsonResponse({ error: "low must be less than high" }, 400);
+  if (critical_low >= safe_low || safe_low >= safe_high || safe_high >= critical_high) {
+    return jsonResponse(
+      { error: "thresholds must satisfy critical_low < safe_low < safe_high < critical_high" },
+      400
+    );
   }
   const result = await env.DB
     .prepare(
-      `UPDATE people SET low_threshold = ?, high_threshold = ?, stale_minutes = ? WHERE id = ?`
+      `UPDATE people SET safe_low = ?, safe_high = ?, critical_low = ?, critical_high = ?, stale_minutes = ? WHERE id = ?`
     )
-    .bind(body.low, body.high, body.stale_minutes, body.person_id)
+    .bind(safe_low, safe_high, critical_low, critical_high, stale_minutes, person_id)
     .run();
   if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
   return jsonResponse({ ok: true });
@@ -134,6 +161,8 @@ async function deleteSubscriber(env: Env, id: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+const PUBLIC_ROUTES = new Set(["POST /api/auth/login"]);
+
 export async function handleApi(request: Request, env: Env, now: number): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return null;
@@ -144,6 +173,15 @@ export async function handleApi(request: Request, env: Env, now: number): Promis
 
   let response: Response;
   try {
+    const routeKey = `${request.method} ${url.pathname}`;
+    if (!PUBLIC_ROUTES.has(routeKey) && url.pathname !== "/api/auth/logout") {
+      const token = bearerToken(request);
+      const admin = token ? await getSessionAdmin(env, token, now) : null;
+      if (!admin) {
+        response = jsonResponse({ error: "unauthorized" }, 401);
+        return corsHeaders(response);
+      }
+    }
     response = await route(request, url, env, now);
   } catch (err) {
     console.error("API error:", err);
@@ -155,6 +193,14 @@ export async function handleApi(request: Request, env: Env, now: number): Promis
 async function route(request: Request, url: URL, env: Env, now: number): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
+
+  if (method === "POST" && path === "/api/auth/login") {
+    return postLogin(env, request, now);
+  }
+
+  if (method === "POST" && path === "/api/auth/logout") {
+    return postLogout(env, request);
+  }
 
   if (method === "GET" && path === "/api/people") {
     return getPeople(env);

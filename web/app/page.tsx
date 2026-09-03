@@ -1,126 +1,117 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { getPeople, getLatestReading, type LatestReadingResponse, type Person } from "./lib/api";
-import { trendArrow, statusColor, statusLabel, minutesAgo } from "./lib/format";
-
-const POLL_INTERVAL_MS = 30_000;
-
-function statusVar(color: string): React.CSSProperties {
-  return { "--status": color } as React.CSSProperties;
-}
-
-function PersonCard({ person }: { person: Person }) {
-  const [data, setData] = useState<LatestReadingResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const res = await getLatestReading(person.id);
-        if (!cancelled) {
-          setData(res);
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
-      }
-    }
-
-    poll();
-    const interval = setInterval(poll, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [person.id]);
-
-  if (error) {
-    return (
-      <div className="card person-card" style={statusVar("var(--status-gray)")}>
-        <div className="name">{person.name}</div>
-        <p className="meta">Couldn&apos;t reach the API: {error}</p>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="card person-card" style={statusVar("var(--status-gray)")}>
-        <div className="name">{person.name}</div>
-        <p className="meta">Loading…</p>
-      </div>
-    );
-  }
-
-  const { reading, status, now } = data;
-
+export default function MarketingPage() {
   return (
-    <div className="card person-card" style={statusVar(statusColor(status))}>
-      <div className="name">
-        {person.name}
-        <span className="status-dot" />
-      </div>
-      {reading ? (
-        <>
-          <div className="value-row">
-            <span className="value">{reading.value_mgdl}</span>
-            <span className="trend">{trendArrow(reading.trend)}</span>
-            <span>mg/dL</span>
+    <div className="marketing">
+      <nav className="marketing-nav">
+        <a className="brand" href="/">
+          WatchGluco
+        </a>
+        <a className="btn-primary" href="/login">
+          Log in
+        </a>
+      </nav>
+
+      <section className="marketing-hero">
+        <div className="hero-copy">
+          <h1>Glucose alerts that reach you before it&apos;s urgent.</h1>
+          <p>
+            Live Dexcom readings for two people, sent to WhatsApp the moment glucose leaves the
+            safe range so nothing gets missed.
+          </p>
+          <a className="btn-primary" href="/login">
+            Log in
+          </a>
+        </div>
+
+        <div className="hero-visual">
+          <svg viewBox="0 0 400 240" role="img" aria-label="Example glucose trace across safe, high, and low readings">
+            <rect x="0" y="0" width="400" height="36" fill="var(--status-red)" opacity="0.12" />
+            <rect x="0" y="36" width="400" height="36" fill="var(--status-orange)" opacity="0.12" />
+            <rect x="0" y="72" width="400" height="96" fill="var(--status-green)" opacity="0.12" />
+            <rect x="0" y="168" width="400" height="36" fill="var(--status-orange)" opacity="0.12" />
+            <rect x="0" y="204" width="400" height="36" fill="var(--status-red)" opacity="0.12" />
+
+            <polyline
+              points="0,140 40,130 80,110 120,150 160,190 200,175 240,130 280,90 320,110 360,140 400,135"
+              fill="none"
+              stroke="var(--text)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <circle className="trace-dot" cx="400" cy="135" r="5" fill="var(--status-green)" />
+          </svg>
+          <p className="meta" style={{ marginTop: "0.75rem" }}>
+            Example trace across a safe, high, and low reading
+          </p>
+        </div>
+      </section>
+
+      <section className="steps">
+        <div className="step">
+          <span className="step-num">1</span>
+          <h3>Connect Dexcom</h3>
+          <p>Enter your Dexcom Share login once. Readings start flowing in under a minute.</p>
+        </div>
+        <div className="step">
+          <span className="step-num">2</span>
+          <h3>Set your ranges</h3>
+          <p>Choose the safe range and critical cutoffs for each person, in mg/dL.</p>
+        </div>
+        <div className="step">
+          <span className="step-num">3</span>
+          <h3>Get alerted on WhatsApp</h3>
+          <p>
+            Messages arrive at the pace the number calls for: none in range, every five minutes
+            in a low or high, every minute when it&apos;s critical.
+          </p>
+        </div>
+      </section>
+
+      <section className="features-bento">
+        <div className="bento-cell tall">
+          <h3>Alerts that scale with urgency</h3>
+          <p>The message rate follows how far outside the safe range a reading is.</p>
+          <div className="tier-bands">
+            <div className="tier-band" style={{ background: "rgba(229,72,77,0.15)" }}>
+              <span>Critical</span>
+              <span>every 1 min</span>
+            </div>
+            <div className="tier-band" style={{ background: "rgba(245,165,36,0.15)" }}>
+              <span>Low or high</span>
+              <span>every 5 min</span>
+            </div>
+            <div className="tier-band" style={{ background: "rgba(47,185,106,0.15)" }}>
+              <span>Safe range</span>
+              <span>silent</span>
+            </div>
           </div>
-          <div className="status-label">{statusLabel(status)}</div>
-          <div className="meta">
-            last updated {minutesAgo(reading.recorded_at, now)}
-          </div>
-        </>
-      ) : (
-        <div className="status-label">{statusLabel(status)}</div>
-      )}
-      <a className="history-link" href={`/history/${person.id}`}>
-        View history →
-      </a>
+        </div>
+        <div className="bento-cell plain">
+          <h3>Two people, one dashboard</h3>
+          <p>Track readings for both people side by side, each with its own thresholds.</p>
+        </div>
+        <div className="bento-cell plain">
+          <h3>Weekly and monthly reports</h3>
+          <p>See when spikes and lows tend to happen, so patterns are easy to spot and discuss.</p>
+        </div>
+      </section>
+
+      <section className="safety">
+        <h2>Information, not instructions.</h2>
+        <p>
+          WatchGluco logs carb counts and insulin doses, and can show the math for a
+          correction factor you enter yourself, as prescribed by your doctor. It does not
+          calculate or suggest insulin doses. Dosing decisions stay with you and your care
+          team.
+        </p>
+      </section>
+
+      <footer className="marketing-footer">
+        <div className="marketing-footer-inner">
+          <span>WatchGluco</span>
+          <span>Support: support@flowlog.dev</span>
+        </div>
+      </footer>
     </div>
-  );
-}
-
-export default function DashboardPage() {
-  const [people, setPeople] = useState<Person[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getPeople()
-      .then(setPeople)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
-  }, []);
-
-  if (error) {
-    return (
-      <section>
-        <h1>Dashboard</h1>
-        <p className="meta">Couldn&apos;t reach the Worker API: {error}</p>
-      </section>
-    );
-  }
-
-  if (!people) {
-    return (
-      <section>
-        <h1>Dashboard</h1>
-        <p className="meta">Loading…</p>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <h1>Dashboard</h1>
-      <div className="card-grid">
-        {people.map((p) => (
-          <PersonCard key={p.id} person={p} />
-        ))}
-      </div>
-    </section>
   );
 }

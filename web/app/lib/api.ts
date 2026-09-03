@@ -1,10 +1,10 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8787";
-
 export interface Person {
   id: string;
   name: string;
-  low_threshold: number;
-  high_threshold: number;
+  safe_low: number;
+  safe_high: number;
+  critical_low: number;
+  critical_high: number;
   stale_minutes: number;
 }
 
@@ -15,7 +15,7 @@ export interface Reading {
   received_at?: number;
 }
 
-export type Status = "high" | "low" | "in_range" | "stale" | "no_data";
+export type Status = "safe" | "warn_low" | "critical_low" | "warn_high" | "critical_high" | "stale" | "no_data";
 
 export interface LatestReadingResponse {
   person: Person;
@@ -31,12 +31,19 @@ export interface Subscriber {
   label: string | null;
 }
 
+/** All data calls go through the same-origin proxy (app/api/proxy/[...path]),
+ *  which attaches the session's bearer token server-side. The browser never
+ *  talks to the Worker directly, and never sees the token. */
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`/api/proxy${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
     cache: "no-store",
   });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${path} failed (${res.status}): ${body}`);
@@ -45,44 +52,49 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getPeople(): Promise<Person[]> {
-  return apiFetch<Person[]>("/api/people");
+  return apiFetch<Person[]>("/people");
 }
 
 export function getLatestReading(personId: string): Promise<LatestReadingResponse> {
-  return apiFetch<LatestReadingResponse>(
-    `/api/readings/latest?person_id=${encodeURIComponent(personId)}`
-  );
+  return apiFetch<LatestReadingResponse>(`/readings/latest?person_id=${encodeURIComponent(personId)}`);
 }
 
 export function getHistory(personId: string, hours: number): Promise<Reading[]> {
-  return apiFetch<Reading[]>(
-    `/api/readings/history?person_id=${encodeURIComponent(personId)}&hours=${hours}`
-  );
+  return apiFetch<Reading[]>(`/readings/history?person_id=${encodeURIComponent(personId)}&hours=${hours}`);
 }
 
 export function getSubscribers(personId: string): Promise<Subscriber[]> {
-  return apiFetch<Subscriber[]>(`/api/subscribers?person_id=${encodeURIComponent(personId)}`);
+  return apiFetch<Subscriber[]>(`/subscribers?person_id=${encodeURIComponent(personId)}`);
 }
 
 export function addSubscriber(personId: string, phoneNumber: string, label: string): Promise<{ id: number }> {
-  return apiFetch<{ id: number }>("/api/subscribers", {
+  return apiFetch<{ id: number }>("/subscribers", {
     method: "POST",
     body: JSON.stringify({ person_id: personId, phone_number: phoneNumber, label }),
   });
 }
 
 export function removeSubscriber(id: number): Promise<{ ok: true }> {
-  return apiFetch<{ ok: true }>(`/api/subscribers/${id}`, { method: "DELETE" });
+  return apiFetch<{ ok: true }>(`/subscribers/${id}`, { method: "DELETE" });
 }
 
 export function updateThresholds(
   personId: string,
-  low: number,
-  high: number,
+  safeLow: number,
+  safeHigh: number,
+  criticalLow: number,
+  criticalHigh: number,
   staleMinutes: number
 ): Promise<{ ok: true }> {
-  return apiFetch<{ ok: true }>("/api/settings/thresholds", {
+  return apiFetch<{ ok: true }>("/settings/thresholds", {
     method: "POST",
-    body: JSON.stringify({ person_id: personId, low, high, stale_minutes: staleMinutes }),
+    body: JSON.stringify({
+      person_id: personId,
+      safe_low: safeLow,
+      safe_high: safeHigh,
+      critical_low: criticalLow,
+      critical_high: criticalHigh,
+      stale_minutes: staleMinutes,
+    }),
   });
 }

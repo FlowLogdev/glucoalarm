@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getHistory, getPeople, type Person, type Reading } from "../../lib/api";
+import { getHistory, getPeople, type Person, type Reading } from "../../../lib/api";
 
 const RANGES = [
   { label: "3h", hours: 3 },

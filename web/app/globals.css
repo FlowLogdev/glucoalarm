@@ -195,3 +195,243 @@ h1, h2 {
 section + section {
   margin-top: 2rem;
 }
+
+/* Marketing page */
+
+.marketing {
+  --accent: var(--status-green);
+}
+
+.marketing-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem;
+  height: 72px;
+}
+
+.marketing-nav .brand {
+  font-weight: 600;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent);
+  color: #04140b;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.3rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.marketing-hero {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 3rem;
+  align-items: center;
+  min-height: 60dvh;
+}
+
+.hero-copy h1 {
+  font-size: clamp(2.2rem, 4vw, 3.2rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+}
+
+.hero-copy p {
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1.6;
+  max-width: 46ch;
+  margin: 0 0 1.75rem;
+}
+
+.hero-visual {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 1rem;
+}
+
+.hero-visual svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.trace-dot {
+  animation: trace-pulse 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-dot {
+    animation: none;
+  }
+}
+
+@keyframes trace-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.steps {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  position: relative;
+}
+
+.step {
+  position: relative;
+  padding-top: 3rem;
+}
+
+.step .step-num {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.step p {
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.features-bento {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 3rem;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 1rem;
+}
+
+.bento-cell {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.bento-cell.tall {
+  grid-row: span 2;
+  background: linear-gradient(165deg, rgba(47, 185, 106, 0.1), transparent 60%), var(--panel);
+}
+
+.bento-cell.plain {
+  background: var(--panel);
+}
+
+.bento-cell h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.bento-cell p {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.tier-bands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 1.25rem;
+  font-size: 0.8rem;
+}
+
+.tier-band {
+  display: flex;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
+.safety {
+  max-width: 65ch;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  text-align: left;
+}
+
+.safety h2 {
+  font-size: 1.6rem;
+  margin: 0 0 1rem;
+}
+
+.safety p {
+  color: var(--text-dim);
+  line-height: 1.65;
+  margin: 0 0 1rem;
+}
+
+.marketing-footer {
+  border-top: 1px solid var(--border);
+  margin-top: 2rem;
+}
+
+.marketing-footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+  .marketing-hero {
+    grid-template-columns: 1fr;
+    padding-top: 1rem;
+  }
+  .steps {
+    grid-template-columns: 1fr;
+  }
+  .features-bento {
+    grid-template-columns: 1fr;
+  }
+  .bento-cell.tall {
+    grid-row: auto;
+  }
+}

@@ -19,11 +19,13 @@ export function trendArrow(trend: string | null | undefined): string {
 
 export function statusColor(status: Status): string {
   switch (status) {
-    case "in_range":
+    case "safe":
       return "var(--status-green)";
-    case "high":
+    case "critical_low":
+    case "critical_high":
       return "var(--status-red)";
-    case "low":
+    case "warn_low":
+    case "warn_high":
       return "var(--status-orange)";
     case "stale":
     case "no_data":
@@ -33,12 +35,16 @@ export function statusColor(status: Status): string {
 
 export function statusLabel(status: Status): string {
   switch (status) {
-    case "in_range":
-      return "In range";
-    case "high":
-      return "High";
-    case "low":
+    case "safe":
+      return "In safe range";
+    case "warn_low":
       return "Low";
+    case "critical_low":
+      return "CRITICAL LOW";
+    case "warn_high":
+      return "High";
+    case "critical_high":
+      return "CRITICAL HIGH";
     case "stale":
       return "Signal lost";
     case "no_data":

@@ -4,8 +4,8 @@ export interface Env {
   DEXCOM_BASE_URL: string;
   DEXCOM_APPLICATION_ID: string;
   DEXCOM_ENC_KEY: string; // base64 32-byte AES-GCM key, set via `wrangler secret put`
-  SMS_MODE: string; // "log" | "twilio"
+  MESSAGE_MODE: string; // "log" | "whatsapp"
   TWILIO_SID: string; // set via `wrangler secret put`
   TWILIO_AUTH: string; // set via `wrangler secret put`
-  TWILIO_PHONE: string; // set via `wrangler secret put`, E.164 e.g. +13055551234
+  TWILIO_WHATSAPP_FROM: string; // set via `wrangler secret put`, E.164 e.g. +14155238886
 }

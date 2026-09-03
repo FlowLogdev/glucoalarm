@@ -10,17 +10,71 @@ Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`.
   behind the same `DexcomClient` interface, with per-person session caching
   in D1 and `dexcom_password` encrypted at rest (AES-256-GCM). Switch modes
   via the `DEXCOM_MODE` var — Worker code is identical either way.
-- **Session 3** (done): real Twilio sending in `src/lib/sms.ts`, gated by
-  `SMS_MODE` (`"log"` vs `"twilio"`) so nothing sends for real until you
-  opt in. A failed send for one phone number is caught and logged — it
-  doesn't block other subscribers or the other monitored person, and the
-  alert is still recorded so cooldown logic doesn't resend-storm next cron.
-- **Session 4** (done): Next.js dashboard in `web/` — `/` (both people,
-  status colors, trend arrows, polls every 30s), `/history/[personId]`
+- **Session 3** (superseded by Session 5): originally SMS, now WhatsApp.
+- **Session 4** (done): Next.js dashboard in `web/` — `/dashboard` (both
+  people, status colors, trend arrows, polls every 30s), `/history/[personId]`
   (recharts line chart, 3h/24h/7d toggle), `/settings` (thresholds + phone
   subscriber management). It talks to the Worker's `/api/*` routes
   (`src/api.ts`) rather than touching D1 directly — Cloudflare credentials
-  never need to exist on Vercel. No auth yet (Session 5).
+  never need to exist on Vercel.
+- **Session 5** (done): admin login, WhatsApp messaging (replacing SMS), a
+  5-tier alert engine (safe / warn / critical, both directions), and a
+  public marketing page at `/`. Details below.
+
+## Session 5: auth, tiered alerts, WhatsApp
+
+**Alert tiers** (`src/lib/alerts.ts`) replaced the old single low/high
+threshold. Each person now has four numbers: `critical_low < safe_low <
+safe_high < critical_high`. Defaults: 70 / 105 / 200 / 250.
+
+| Range | Behavior |
+|---|---|
+| `safe_low`–`safe_high` | silent |
+| `safe_low`/`safe_high` to `critical_low`/`critical_high` | WhatsApp every 5 min |
+| beyond `critical_low`/`critical_high` | WhatsApp every 1 min, marked CRITICAL |
+| re-entering the safe range from any non-safe tier | one "back in range" message, then silent again |
+
+**Messaging** moved from SMS to WhatsApp (`src/lib/whatsapp.ts`), via
+Twilio's WhatsApp API. Gated by `MESSAGE_MODE` (`"log"` vs `"whatsapp"`),
+same opt-in-only pattern as before.
+
+**Auth**: the Worker has its own `admins` table (PBKDF2-hashed passwords,
+`src/lib/password.ts` / `src/auth.ts`) and session-based login
+(`POST /api/auth/login` → bearer token, all other `/api/*` routes require
+`Authorization: Bearer <token>`). The dashboard never talks to the Worker
+directly or holds the token in browser-readable storage — see "How auth
+works" below.
+
+A super admin (`support@flowlog.dev`) was seeded via migration
+`0003_admins.sql`. **The password was typed in chat to set this up, so it's
+in this conversation's history — worth rotating.** To set a new password
+without ever typing it anywhere but this one command:
+```
+node scripts/hash-password.mjs "new-password"
+npx wrangler d1 execute watchgluco-db --local --command \
+  "UPDATE admins SET password_hash = '<hash from above>' WHERE email = 'support@flowlog.dev';"
+```
+(add `--remote` for the deployed database.)
+
+### How auth works end to end
+
+```
+Browser --(same-origin, httpOnly cookie)--> Next.js route handlers --(Bearer token)--> Worker
+```
+
+- `POST /api/login` (Next.js) calls the Worker's login, then sets an
+  httpOnly, Secure, SameSite=Lax cookie (`session_id`) on the Next.js
+  domain. The browser never sees the raw bearer token.
+- `app/api/proxy/[...path]/route.ts` forwards every dashboard data call to
+  the Worker with `Authorization: Bearer <session_id from cookie>`. The
+  client-side code (`web/app/lib/api.ts`) only ever calls same-origin
+  `/api/proxy/*` — no CORS, no token in browser JS.
+- `middleware.ts` redirects unauthenticated visitors away from
+  `/dashboard`, `/history/*`, `/settings` to `/login`. This is a fast
+  presence-only check; the proxy route (and the Worker) independently
+  re-validate the session on every data call, so an expired/invalidated
+  session still gets rejected even if the redirect check is bypassed.
+- `POST /api/logout` clears the cookie and deletes the session server-side.
 
 ## Local dev — Worker
 
@@ -38,9 +92,9 @@ npx wrangler d1 execute watchgluco-db --local --command "SELECT * FROM readings 
 npx wrangler d1 execute watchgluco-db --local --command "SELECT * FROM alerts_log ORDER BY id DESC LIMIT 10;"
 ```
 
-To see alerts fire, lower a threshold so the random walk crosses it, e.g.:
+To see alerts fire, tighten the safe range so the random walk crosses it, e.g.:
 ```
-npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 120 WHERE id = 'dad';"
+npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET safe_low = 120, safe_high = 130 WHERE id = 'dad';"
 ```
 
 ## Switching a person to real Dexcom Share data
@@ -82,35 +136,45 @@ stays on your machine.
    check `readings` in D1 — you should see your actual glucose value, not a
    random walk.
 
-## Turning on real Twilio sending
+## Turning on real WhatsApp sending
 
-1. Add at least one row to `phone_subscribers` per person (see the Twilio
-   secrets step below first, or you'll get real 401s while testing):
+WhatsApp requires the recipient to opt in first, unlike SMS.
+
+1. **Twilio WhatsApp Sandbox (for testing):** in the Twilio Console under
+   Messaging → Try it out → WhatsApp, you'll see a sandbox number (usually
+   `+14155238886`) and a join code like `join happy-tiger`. Each recipient
+   phone sends that join message to that number on WhatsApp once — this
+   opts them in for 72 hours (rejoin as needed while testing). For
+   production, you'd apply for a real WhatsApp Business sender instead
+   (longer process, not needed to get this working today).
+
+2. Add at least one row to `phone_subscribers` per person:
    ```
    npx wrangler d1 execute watchgluco-db --local --command \
      "INSERT INTO phone_subscribers (person_id, phone_number, label) VALUES ('dad', '+13055551234', 'my phone');"
    ```
    Phone numbers must be E.164 format (`+1` + 10 digits for US numbers).
 
-2. Set the three Twilio secrets — run these yourself, the prompt keeps the
+3. Set the Twilio secrets — run these yourself, the prompt keeps the
    values off the terminal history and out of this chat:
    ```
-   npx wrangler secret put TWILIO_SID --local     # starts with AC...
-   npx wrangler secret put TWILIO_AUTH --local    # Auth Token
-   npx wrangler secret put TWILIO_PHONE --local   # your Twilio number, e.g. +13055550100
+   npx wrangler secret put TWILIO_SID --local              # starts with AC...
+   npx wrangler secret put TWILIO_AUTH --local              # Auth Token
+   npx wrangler secret put TWILIO_WHATSAPP_FROM --local      # sandbox number while testing, e.g. +14155238886
    ```
    Repeat without `--local` once you're ready to set them on the deployed
    Worker.
 
-3. Flip `SMS_MODE = "twilio"` in `wrangler.toml` (or override locally with
-   `wrangler dev --var SMS_MODE:twilio` without editing the file).
+4. Flip `MESSAGE_MODE = "whatsapp"` in `wrangler.toml` (or override locally
+   with `wrangler dev --var MESSAGE_MODE:whatsapp` without editing the
+   file).
 
-4. Trigger a real alert to confirm delivery — temporarily drop a threshold
-   below the current reading, poll, then put it back:
+5. Trigger a real alert to confirm delivery — temporarily tighten the safe
+   range below the current reading, poll, then put it back:
    ```
-   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 0 WHERE id = 'dad';"
+   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET safe_low = 500, safe_high = 600 WHERE id = 'dad';"
    curl http://localhost:8787/__poll
-   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET high_threshold = 180 WHERE id = 'dad';"
+   npx wrangler d1 execute watchgluco-db --local --command "UPDATE people SET safe_low = 105, safe_high = 200 WHERE id = 'dad';"
    ```
 
 ## Local dev — dashboard (`web/`)
@@ -118,19 +182,24 @@ stays on your machine.
 ```
 cd web
 npm install
-cp .env.local.example .env.local   # NEXT_PUBLIC_API_BASE_URL=http://localhost:8787
+cp .env.local.example .env.local   # API_BASE_URL=http://localhost:8787 (server-only, not exposed to the browser)
 npm run dev                        # next dev — uses :3000, or `-- -p <port>` if that's taken
 ```
 
-Run the Worker (`npm run dev` from the repo root) alongside it — the
-dashboard is just a client of the Worker's `/api/*` routes, so both need to
-be up. `MockDexcomClient` readings will show up on the dashboard exactly
-like real ones would.
+Run the Worker (`npm run dev` from the repo root) alongside it. Pages:
+- `/` — public marketing page, no auth
+- `/login` — admin login
+- `/dashboard`, `/history/[personId]`, `/settings` — behind auth
+  (`middleware.ts` redirects to `/login` if there's no session cookie)
 
-**Not yet visually verified in a real browser** — pages compile, all
-`/api/*` routes were curl-tested directly and return the expected shapes,
-and CORS preflight to the Worker succeeds, but no screenshot/click-through
-pass has been done. Worth a manual look before calling Session 4 fully done.
+`MockDexcomClient` readings will show up on the dashboard exactly like real
+ones would.
+
+**Not yet visually verified in a real browser** — pages compile, the full
+login → cookie → proxy → Worker chain was curl-tested end to end (including
+that logout actually invalidates the session server-side), but no
+screenshot/click-through pass has been done. Worth a manual look, especially
+at the marketing page's layout, before calling this fully done.
 
 ## Deploying
 
@@ -138,15 +207,20 @@ pass has been done. Worth a manual look before calling Session 4 fully done.
 1. `npx wrangler d1 create watchgluco-db` and paste the returned `database_id`
    into `wrangler.toml` (currently `REPLACE_WITH_D1_DATABASE_ID`)
 2. `npm run db:migrate:remote`
-3. `npx wrangler secret put DEXCOM_ENC_KEY` and the three `TWILIO_*` secrets
-   (see above, both without `--local`)
+3. `npx wrangler secret put DEXCOM_ENC_KEY`, `TWILIO_SID`, `TWILIO_AUTH`,
+   `TWILIO_WHATSAPP_FROM` (see above, all without `--local`)
 4. `npm run deploy`
 
-**Dashboard (Session 5):** deploy `web/` to Vercel as its own project (root
-directory `web`), set `NEXT_PUBLIC_API_BASE_URL` to the deployed Worker's
-URL in Vercel's project env vars, then point watchgluco.com's DNS at Vercel.
+**Dashboard:** deploy `web/` to Vercel as its own project (root directory
+`web`), set `API_BASE_URL` (server-only — do **not** prefix it
+`NEXT_PUBLIC_`, or the Worker's URL and the session flow both leak to the
+browser) to the deployed Worker's URL in Vercel's project env vars, then
+point watchgluco.com's DNS at Vercel.
 
 ## What's next (per the build spec)
 
-- **Session 5:** auth + deploy to watchgluco.com
 - **Session 6:** mobile app (Expo)
+- Carb + insulin dosing log (arithmetic only, no AI-generated dosing — see
+  the safety note on the marketing page)
+- AI-generated time-of-day pattern insights and weekly/bi-weekly/monthly
+  reports

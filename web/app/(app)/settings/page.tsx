@@ -9,19 +9,25 @@ import {
   updateThresholds,
   type Person,
   type Subscriber,
-} from "../lib/api";
+} from "../../lib/api";
 
 function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
-  const [low, setLow] = useState(person.low_threshold);
-  const [high, setHigh] = useState(person.high_threshold);
+  const [safeLow, setSafeLow] = useState(person.safe_low);
+  const [safeHigh, setSafeHigh] = useState(person.safe_high);
+  const [criticalLow, setCriticalLow] = useState(person.critical_low);
+  const [criticalHigh, setCriticalHigh] = useState(person.critical_high);
   const [staleMinutes, setStaleMinutes] = useState(person.stale_minutes);
   const [status, setStatus] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setStatus(null);
+    if (criticalLow >= safeLow || safeLow >= safeHigh || safeHigh >= criticalHigh) {
+      setStatus("Thresholds must satisfy: critical low < safe low < safe high < critical high");
+      return;
+    }
     try {
-      await updateThresholds(person.id, low, high, staleMinutes);
+      await updateThresholds(person.id, safeLow, safeHigh, criticalLow, criticalHigh, staleMinutes);
       setStatus("Saved.");
       onSaved();
     } catch (err) {
@@ -31,13 +37,40 @@ function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => voi
 
   return (
     <form onSubmit={onSubmit}>
+      <p className="meta">
+        Safe range: no WhatsApp messages. Between safe and critical: every 5 min. Beyond critical:
+        every 1 min, marked CRITICAL.
+      </p>
       <label>
-        Low threshold (mg/dL)
-        <input type="number" value={low} onChange={(e) => setLow(Number(e.target.value))} required />
+        Critical low (mg/dL) — below this, every 1 min
+        <input
+          type="number"
+          value={criticalLow}
+          onChange={(e) => setCriticalLow(Number(e.target.value))}
+          required
+        />
       </label>
       <label>
-        High threshold (mg/dL)
-        <input type="number" value={high} onChange={(e) => setHigh(Number(e.target.value))} required />
+        Safe range low (mg/dL)
+        <input type="number" value={safeLow} onChange={(e) => setSafeLow(Number(e.target.value))} required />
+      </label>
+      <label>
+        Safe range high (mg/dL)
+        <input
+          type="number"
+          value={safeHigh}
+          onChange={(e) => setSafeHigh(Number(e.target.value))}
+          required
+        />
+      </label>
+      <label>
+        Critical high (mg/dL) — above this, every 1 min
+        <input
+          type="number"
+          value={criticalHigh}
+          onChange={(e) => setCriticalHigh(Number(e.target.value))}
+          required
+        />
       </label>
       <label>
         Stale after (minutes)

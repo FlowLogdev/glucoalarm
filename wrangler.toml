@@ -18,11 +18,12 @@ DEXCOM_BASE_URL = "https://share2.dexcom.com"
 # Public Dexcom Share follower application ID (not a secret) — override only
 # if you're using a different registered app.
 DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
-# Set to "log" to just console.log SMS bodies, "twilio" to actually send.
-SMS_MODE = "log"
+# Set to "log" to just console.log message bodies, "whatsapp" to actually send.
+MESSAGE_MODE = "log"
 
 # Secrets (not stored here — set via `wrangler secret put`):
-#   DEXCOM_ENC_KEY   base64 32-byte AES-GCM key, encrypts dexcom_password at rest
-#   TWILIO_SID       Twilio Account SID (starts with AC...)
-#   TWILIO_AUTH      Twilio Auth Token
-#   TWILIO_PHONE     Twilio sending number, E.164 format e.g. +13055551234
+#   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest
+#   TWILIO_SID             Twilio Account SID (starts with AC...)
+#   TWILIO_AUTH            Twilio Auth Token
+#   TWILIO_WHATSAPP_FROM   Twilio WhatsApp-enabled sender number, E.164, e.g. +14155238886
+#                          (the Sandbox number while testing: +14155238886)

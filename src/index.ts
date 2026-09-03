@@ -1,8 +1,8 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyReading, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
-import { sendSMS, messageFor } from "./lib/sms";
+import { classifyAlert, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
+import { sendWhatsApp, messageFor } from "./lib/whatsapp";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
 import type { Env } from "./types";
@@ -136,7 +136,7 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
   if (isStale(now, lastReceivedAt, person.stale_minutes)) {
     alertType = "signal_lost";
   } else {
-    alertType = classifyReading(person, value, lastAlert?.type ?? null);
+    alertType = classifyAlert(person, value, lastAlert?.type ?? null);
   }
 
   if (!alertType) return;
@@ -148,7 +148,7 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     .bind(person.id, alertType)
     .first<{ sent_at: number }>();
 
-  if (isInCooldown(now, lastSameTypeAlert?.sent_at ?? null)) return;
+  if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
 
   const subscribers = await env.DB
     .prepare(`SELECT phone_number FROM phone_subscribers WHERE person_id = ?`)
@@ -160,11 +160,11 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
 
   for (const sub of subscribers.results) {
     try {
-      await sendSMS(sub.phone_number, body, env);
+      await sendWhatsApp(sub.phone_number, body, env);
     } catch (err) {
       // Don't let one bad number block the rest, or skip alerts_log below
       // and cause a resend storm next cron run.
-      console.error(`sendSMS failed for ${person.id} -> ${sub.phone_number}:`, err);
+      console.error(`sendWhatsApp failed for ${person.id} -> ${sub.phone_number}:`, err);
     }
   }
 
