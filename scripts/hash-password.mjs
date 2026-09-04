@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// Hashes an admin password locally (PBKDF2-HMAC-SHA256, 210k iterations).
-// Must stay compatible with src/lib/password.ts's verifyPassword.
+// Hashes an admin password locally (PBKDF2-HMAC-SHA256, 100k iterations --
+// the max Cloudflare Workers' WebCrypto allows for PBKDF2; going higher
+// throws NotSupportedError on the deployed Worker even though it silently
+// works in local wrangler dev). Must stay compatible with
+// src/lib/password.ts's verifyPassword.
 //
 // Usage: node scripts/hash-password.mjs "the-plaintext-password"
 
@@ -10,7 +13,7 @@ if (!password) {
   process.exit(1);
 }
 
-const ITERATIONS = 210_000;
+const ITERATIONS = 100_000;
 
 function bytesToBase64(bytes) {
   return Buffer.from(bytes).toString("base64");

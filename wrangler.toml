@@ -8,7 +8,7 @@ crons = ["*/1 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "watchgluco-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "95338fb1-8d06-49bb-aa7c-d51d5a3ba61d"
 
 [vars]
 # Set to "mock" for local/testing, "dexcom" to poll the real Dexcom Share API.

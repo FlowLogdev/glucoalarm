@@ -7,7 +7,10 @@ import { base64ToBytes, bytesToBase64 } from "./crypto";
  * plaintext admin passwords never have to be typed anywhere but the login
  * form itself.
  */
-const ITERATIONS = 210_000;
+// Cloudflare Workers' WebCrypto caps PBKDF2 at 100,000 iterations (silently
+// works past that in local Miniflare, but throws NotSupportedError on the
+// real edge runtime) — this is the max allowed, not an arbitrary choice.
+const ITERATIONS = 100_000;
 
 async function deriveHash(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, [

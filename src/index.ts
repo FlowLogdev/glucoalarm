@@ -5,6 +5,7 @@ import { classifyAlert, isStale, isInCooldown, type AlertType, type Person } fro
 import { sendWhatsApp, messageFor } from "./lib/whatsapp";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
+import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
 interface PersonRow extends Person {
@@ -197,9 +198,14 @@ export default {
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
     if (apiResponse) return apiResponse;
 
-    // Manual trigger for local testing: curl http://localhost:8787/__poll
+    // Manual trigger, e.g. for local testing: curl http://localhost:8787/__poll
+    // Requires the same admin bearer token as /api/* so it can't be hit
+    // anonymously once this is deployed and polling real Dexcom/Twilio.
     const url = new URL(request.url);
     if (url.pathname === "/__poll") {
+      const token = bearerToken(request);
+      const admin = token ? await getSessionAdmin(env, token, Math.floor(Date.now() / 1000)) : null;
+      if (!admin) return new Response("unauthorized\n", { status: 401 });
       await pollAll(env);
       return new Response("polled\n");
     }
