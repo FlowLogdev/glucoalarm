@@ -9,6 +9,12 @@ export interface Person {
   carb_ratio: number | null;
   correction_factor: number | null;
   target_glucose: number | null;
+  timezone: string | null;
+}
+
+export interface Insight {
+  summary: string;
+  generated_at: number;
 }
 
 export interface InsulinLogEntry {
@@ -187,4 +193,22 @@ export function removeInsulinLogEntry(id: number): Promise<{ ok: true }> {
 
 export function getReport(personId: string, period: ReportPeriod): Promise<Report> {
   return apiFetch<Report>(`/reports?person_id=${encodeURIComponent(personId)}&period=${period}`);
+}
+
+export function updateTimezone(personId: string, timezone: string | null): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>("/settings/timezone", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, timezone }),
+  });
+}
+
+export function getInsight(personId: string, period: ReportPeriod): Promise<Insight | null> {
+  return apiFetch<Insight | null>(`/insights?person_id=${encodeURIComponent(personId)}&period=${period}`);
+}
+
+export function generateInsight(personId: string, period: ReportPeriod): Promise<Insight> {
+  return apiFetch<Insight>("/insights/generate", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, period }),
+  });
 }

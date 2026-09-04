@@ -257,6 +257,40 @@ Monthly, per person:
 existing `readings`/`alerts_log` data — no new tables, and no AI involved,
 this is plain aggregation.
 
+## AI time-of-day pattern insights
+
+A "Time-of-day pattern" card on `/reports`, one per person, with a
+**Generate insight** button. Nothing calls the AI API just from viewing
+the page — generation is on-demand only, and the last result is cached in
+a new `insights` table (`person_id, period`) so reloading the page doesn't
+re-spend.
+
+**How it works:** `src/insights.ts` first does deterministic aggregation
+in JS/SQL — readings grouped by tier and by *local* hour-of-day (0-23),
+using each person's `timezone` column and `Intl.DateTimeFormat`, not UTC.
+Only those counts (never raw readings) go to Claude
+(`env.ANTHROPIC_MODEL`, default `claude-haiku-4-5-20251001`) with a system
+prompt that explicitly forbids mentioning insulin, doses, units, or any
+treatment action — it's only allowed to describe the time-of-day pattern
+in the numbers and suggest a question for the endocrinologist. As
+defense-in-depth, the response is also regex-scanned for dosing language
+before being shown or cached; a match gets replaced with a safe fallback
+message and logged.
+
+**Timezone**: auto-detected from whatever browser last opened `/reports`
+(`Intl.DateTimeFormat().resolvedOptions().timeZone` — no location
+permission prompt, just reads the device's own clock setting) and saved
+per person if unset. Override manually in Settings if that's ever wrong
+(e.g. someone's traveling).
+
+**Setup**: get an API key from console.anthropic.com, then:
+```
+npx wrangler secret put ANTHROPIC_API_KEY --local   # for local dev
+npx wrangler secret put ANTHROPIC_API_KEY           # for the deployed Worker
+```
+Without this secret set, "Generate insight" fails with a clear 502
+instead of crashing anything else — verified locally.
+
 ## What's next (per the build spec)
 
 - **Session 6:** mobile app (Expo)

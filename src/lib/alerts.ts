@@ -27,7 +27,14 @@ const COOLDOWN_SECONDS: Record<AlertType, number> = {
   signal_lost: 15 * 60,
 };
 
-export function classifyTier(person: Person, value: number): Tier {
+export interface ThresholdBand {
+  safe_low: number;
+  safe_high: number;
+  critical_low: number;
+  critical_high: number;
+}
+
+export function classifyTier(person: ThresholdBand, value: number): Tier {
   if (value >= person.safe_low && value <= person.safe_high) return "safe";
   if (value < person.safe_low) {
     return value < person.critical_low ? "critical_low" : "warn_low";

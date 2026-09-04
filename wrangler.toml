@@ -20,6 +20,7 @@ DEXCOM_BASE_URL = "https://share2.dexcom.com"
 DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
 # Set to "log" to just console.log message bodies, "whatsapp" to actually send.
 MESSAGE_MODE = "log"
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest
@@ -27,3 +28,5 @@ MESSAGE_MODE = "log"
 #   TWILIO_AUTH            Twilio Auth Token
 #   TWILIO_WHATSAPP_FROM   Twilio WhatsApp-enabled sender number, E.164, e.g. +14155238886
 #                          (the Sandbox number while testing: +14155238886)
+#   ANTHROPIC_API_KEY      from console.anthropic.com, powers the Reports page's
+#                          time-of-day pattern insight ("Generate insight" button)

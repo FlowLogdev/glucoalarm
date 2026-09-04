@@ -8,4 +8,6 @@ export interface Env {
   TWILIO_SID: string; // set via `wrangler secret put`
   TWILIO_AUTH: string; // set via `wrangler secret put`
   TWILIO_WHATSAPP_FROM: string; // set via `wrangler secret put`, E.164 e.g. +14155238886
+  ANTHROPIC_API_KEY: string; // set via `wrangler secret put`
+  ANTHROPIC_MODEL: string; // e.g. "claude-haiku-4-5-20251001"
 }

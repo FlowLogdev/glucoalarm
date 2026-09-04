@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { getPeople, getReport, type Person, type Report, type ReportPeriod } from "../../lib/api";
+import {
+  generateInsight,
+  getInsight,
+  getPeople,
+  getReport,
+  updateTimezone,
+  type Insight,
+  type Person,
+  type Report,
+  type ReportPeriod,
+} from "../../lib/api";
 import { formatDateTime, formatDuration, statusColor, statusLabel } from "../../lib/format";
 
 const PERIODS: { key: ReportPeriod; label: string }[] = [
@@ -12,6 +22,53 @@ const PERIODS: { key: ReportPeriod; label: string }[] = [
 ];
 
 const TIER_KEYS = ["critical_high", "warn_high", "safe", "warn_low", "critical_low"] as const;
+
+function InsightCard({ personId, period }: { personId: string; period: ReportPeriod }) {
+  const [insight, setInsight] = useState<Insight | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInsight(null);
+    getInsight(personId, period)
+      .then(setInsight)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }, [personId, period]);
+
+  async function onGenerate() {
+    setLoading(true);
+    setError(null);
+    try {
+      setInsight(await generateInsight(personId, period));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate insight");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Time-of-day pattern</h3>
+      {insight ? (
+        <>
+          <p>{insight.summary}</p>
+          <p className="meta">Generated {formatDateTime(insight.generated_at)}</p>
+        </>
+      ) : (
+        <p className="meta">No insight generated yet for this period.</p>
+      )}
+      <button onClick={onGenerate} disabled={loading}>
+        {loading ? "Generating…" : insight ? "Regenerate" : "Generate insight"}
+      </button>
+      {error && <p className="meta">{error}</p>}
+      <p className="meta" style={{ marginTop: "0.75rem" }}>
+        AI-written pattern summary from readings only, not medical advice, and never a dosing
+        suggestion.
+      </p>
+    </div>
+  );
+}
 
 function PersonReport({ person, period }: { person: Person; period: ReportPeriod }) {
   const [report, setReport] = useState<Report | null>(null);
@@ -98,6 +155,8 @@ function PersonReport({ person, period }: { person: Person; period: ReportPeriod
             ))
           )}
         </div>
+
+        <InsightCard personId={person.id} period={period} />
       </div>
     </section>
   );
@@ -110,7 +169,17 @@ export default function ReportsPage() {
 
   useEffect(() => {
     getPeople()
-      .then(setPeople)
+      .then(async (loaded) => {
+        // Auto-detect this device's timezone for anyone who hasn't set one,
+        // so time-of-day insights use real local hours instead of UTC.
+        const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const missing = loaded.filter((p) => !p.timezone);
+        if (detected && missing.length > 0) {
+          await Promise.all(missing.map((p) => updateTimezone(p.id, detected).catch(() => {})));
+          loaded = loaded.map((p) => (p.timezone ? p : { ...p, timezone: detected }));
+        }
+        setPeople(loaded);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
 

@@ -1,6 +1,7 @@
 import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
 import { bearerToken, getSessionAdmin, login, logout } from "./auth";
 import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
+import { generateInsight, getCachedInsight } from "./insights";
 import type { Env } from "./types";
 
 type Status = Tier | "stale" | "no_data";
@@ -30,12 +31,13 @@ function computeStatus(
   return classifyTier(person, reading.value_mgdl);
 }
 
-const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose`;
+const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose, timezone`;
 
 interface PersonWithDosing extends Person {
   carb_ratio: number | null;
   correction_factor: number | null;
   target_glucose: number | null;
+  timezone: string | null;
 }
 
 async function postLogin(env: Env, request: Request, now: number): Promise<Response> {
@@ -174,6 +176,61 @@ async function postDosingSettings(env: Env, request: Request): Promise<Response>
     .run();
   if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
   return jsonResponse({ ok: true });
+}
+
+async function postTimezone(env: Env, request: Request): Promise<Response> {
+  const body = await request.json<{ person_id?: string; timezone?: string | null }>();
+  if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+
+  const timezone = body.timezone || null;
+  if (timezone) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    } catch {
+      return jsonResponse({ error: "invalid IANA timezone name" }, 400);
+    }
+  }
+
+  const result = await env.DB
+    .prepare(`UPDATE people SET timezone = ? WHERE id = ?`)
+    .bind(timezone, body.person_id)
+    .run();
+  if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
+  return jsonResponse({ ok: true });
+}
+
+async function getInsightRoute(env: Env, personId: string, periodParam: string | null): Promise<Response> {
+  const periodKey = (periodParam && periodParam in REPORT_PERIODS ? periodParam : "week") as ReportPeriod;
+  const insight = await getCachedInsight(env, personId, periodKey);
+  return jsonResponse(insight);
+}
+
+async function postGenerateInsight(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{ person_id?: string; period?: string }>();
+  if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+  const periodKey = (body.period && body.period in REPORT_PERIODS ? body.period : "week") as ReportPeriod;
+
+  const person = await env.DB
+    .prepare(`SELECT id, name, safe_low, safe_high, critical_low, critical_high, timezone FROM people WHERE id = ?`)
+    .bind(body.person_id)
+    .first<{
+      id: string;
+      name: string;
+      safe_low: number;
+      safe_high: number;
+      critical_low: number;
+      critical_high: number;
+      timezone: string | null;
+    }>();
+  if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+
+  try {
+    const insight = await generateInsight(env, person, periodKey, now);
+    return jsonResponse(insight);
+  } catch (err) {
+    console.error("generateInsight failed:", err);
+    return jsonResponse({ error: "insight_generation_failed" }, 502);
+  }
 }
 
 async function getInsulinLog(env: Env, personId: string, hours: number): Promise<Response> {
@@ -336,6 +393,20 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
 
   if (method === "POST" && path === "/api/settings/dosing") {
     return postDosingSettings(env, request);
+  }
+
+  if (method === "POST" && path === "/api/settings/timezone") {
+    return postTimezone(env, request);
+  }
+
+  if (method === "GET" && path === "/api/insights") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    return getInsightRoute(env, personId, url.searchParams.get("period"));
+  }
+
+  if (method === "POST" && path === "/api/insights/generate") {
+    return postGenerateInsight(env, request, now);
   }
 
   if (method === "POST" && path === "/api/subscribers") {

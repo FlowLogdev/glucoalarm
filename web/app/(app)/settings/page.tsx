@@ -8,6 +8,7 @@ import {
   removeSubscriber,
   updateDosingSettings,
   updateThresholds,
+  updateTimezone,
   type Person,
   type Subscriber,
 } from "../../lib/api";
@@ -156,6 +157,43 @@ function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }
   );
 }
 
+function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+  const [timezone, setTimezone] = useState(person.timezone ?? "");
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function save(value: string) {
+    setStatus(null);
+    try {
+      await updateTimezone(person.id, value || null);
+      setTimezone(value);
+      setStatus("Saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); save(timezone); }}>
+      <p className="meta">
+        Used to compute time-of-day pattern insights in the right local time. Auto-detected from
+        whatever device last viewed Reports; override here if that's wrong (e.g. traveling).
+      </p>
+      <label>
+        IANA timezone (e.g. America/New_York)
+        <input type="text" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/New_York" />
+      </label>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        <button type="submit">Save</button>
+        <button type="button" onClick={() => save(Intl.DateTimeFormat().resolvedOptions().timeZone)}>
+          Use this device&apos;s timezone
+        </button>
+      </div>
+      {status && <p className="meta">{status}</p>}
+    </form>
+  );
+}
+
 function SubscriberManager({ personId }: { personId: string }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -262,6 +300,10 @@ export default function SettingsPage() {
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
               <DosingForm person={person} onSaved={refresh} />
+            </div>
+            <div className="card">
+              <h3 style={{ marginTop: 0 }}>Timezone</h3>
+              <TimezoneForm person={person} onSaved={refresh} />
             </div>
           </div>
         </section>
