@@ -235,8 +235,30 @@ the Log page labels the result "per your saved formula," always with a
 "not medical advice, confirm with your care team" line. If a person has no
 formula configured, no calculation is shown at all.
 
+## Reports (pie chart + spikes/lows log)
+
+`/reports` (`web/app/(app)/reports/`), toggled between Weekly / Bi-weekly /
+Monthly, per person:
+
+- **Readings by range** — a pie chart of how many captured readings fell
+  in each tier (safe/warn/critical, both directions) over the period.
+  Count-based, not strictly time-weighted, so it's labeled "readings" not
+  "time in range" — honest about what it's actually measuring given
+  polling intervals can vary.
+- **Spikes and lows** — a log of each low/high episode in the period: when
+  it started, how long it lasted, the most extreme value reached, and
+  whether it hit the critical tier. Episodes are derived from
+  `alerts_log` by grouping consecutive same-direction alerts until a
+  `recovered` entry (or the opposite direction) closes them
+  (`src/reports.ts`'s `buildEpisodes`), so a 20-minute high shows as one
+  episode, not four separate WhatsApp-cooldown alert rows.
+
+`GET /api/reports?person_id=&period=week|biweek|month` computes both from
+existing `readings`/`alerts_log` data — no new tables, and no AI involved,
+this is plain aggregation.
+
 ## What's next (per the build spec)
 
 - **Session 6:** mobile app (Expo)
-- AI-generated time-of-day pattern insights and weekly/bi-weekly/monthly
-  reports
+- AI-generated time-of-day pattern insights (not dosing — see the carb log
+  section above for why)

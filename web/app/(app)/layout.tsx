@@ -9,6 +9,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </a>
         <a href="/dashboard">Dashboard</a>
         <a href="/log">Log</a>
+        <a href="/reports">Reports</a>
         <a href="/settings">Settings</a>
         <LogoutButton />
       </nav>

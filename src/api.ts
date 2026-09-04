@@ -1,5 +1,6 @@
 import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
 import { bearerToken, getSessionAdmin, login, logout } from "./auth";
+import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import type { Env } from "./types";
 
 type Status = Tier | "stale" | "no_data";
@@ -89,6 +90,13 @@ async function getHistory(env: Env, personId: string, hours: number): Promise<Re
     .bind(personId, since)
     .all<{ value_mgdl: number; trend: string; recorded_at: number }>();
   return jsonResponse(readings.results);
+}
+
+async function getReportRoute(env: Env, personId: string, periodParam: string | null, now: number): Promise<Response> {
+  const periodKey = (periodParam && periodParam in REPORT_PERIODS ? periodParam : "week") as ReportPeriod;
+  const report = await getReport(env, personId, periodKey, now);
+  if (!report) return jsonResponse({ error: "person_not_found" }, 404);
+  return jsonResponse(report);
 }
 
 async function getSubscribers(env: Env, personId: string): Promise<Response> {
@@ -308,6 +316,12 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
     const hours = Number(url.searchParams.get("hours") ?? "24");
     return getHistory(env, personId, Number.isFinite(hours) && hours > 0 ? hours : 24);
+  }
+
+  if (method === "GET" && path === "/api/reports") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    return getReportRoute(env, personId, url.searchParams.get("period"), now);
   }
 
   if (method === "GET" && path === "/api/subscribers") {

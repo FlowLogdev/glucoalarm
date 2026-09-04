@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/history", "/settings", "/log"];
+const PROTECTED_PREFIXES = ["/dashboard", "/history", "/settings", "/log", "/reports"];
 
 export function middleware(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
@@ -17,5 +17,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/history/:path*", "/settings/:path*", "/log/:path*"],
+  matcher: ["/dashboard/:path*", "/history/:path*", "/settings/:path*", "/log/:path*", "/reports/:path*"],
 };

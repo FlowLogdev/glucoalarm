@@ -31,6 +31,32 @@ export interface Reading {
 
 export type Status = "safe" | "warn_low" | "critical_low" | "warn_high" | "critical_high" | "stale" | "no_data";
 
+export type ReportPeriod = "week" | "biweek" | "month";
+
+export interface ReadingsByTier {
+  safe: number;
+  warn_low: number;
+  critical_low: number;
+  warn_high: number;
+  critical_high: number;
+  total: number;
+}
+
+export interface Episode {
+  direction: "low" | "high";
+  reachedCritical: boolean;
+  startAt: number;
+  endAt: number;
+  extremeValue: number;
+  ongoing: boolean;
+}
+
+export interface Report {
+  period: { key: ReportPeriod; label: string; startAt: number; endAt: number };
+  readingsByTier: ReadingsByTier;
+  episodes: Episode[];
+}
+
 export interface LatestReadingResponse {
   person: Person;
   reading: Reading | null;
@@ -157,4 +183,8 @@ export function addInsulinLogEntry(entry: {
 
 export function removeInsulinLogEntry(id: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>(`/insulin-log/${id}`, { method: "DELETE" });
+}
+
+export function getReport(personId: string, period: ReportPeriod): Promise<Report> {
+  return apiFetch<Report>(`/reports?person_id=${encodeURIComponent(personId)}&period=${period}`);
 }
