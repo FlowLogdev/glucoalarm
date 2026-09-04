@@ -29,7 +29,13 @@ function computeStatus(
   return classifyTier(person, reading.value_mgdl);
 }
 
-const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes`;
+const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose`;
+
+interface PersonWithDosing extends Person {
+  carb_ratio: number | null;
+  correction_factor: number | null;
+  target_glucose: number | null;
+}
 
 async function postLogin(env: Env, request: Request, now: number): Promise<Response> {
   const body = await request.json<{ email?: string; password?: string }>();
@@ -48,7 +54,7 @@ async function postLogout(env: Env, request: Request): Promise<Response> {
 }
 
 async function getPeople(env: Env): Promise<Response> {
-  const people = await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<Person>();
+  const people = await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<PersonWithDosing>();
   return jsonResponse(people.results);
 }
 
@@ -56,7 +62,7 @@ async function getLatest(env: Env, personId: string, now: number): Promise<Respo
   const person = await env.DB
     .prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE id = ?`)
     .bind(personId)
-    .first<Person>();
+    .first<PersonWithDosing>();
   if (!person) return jsonResponse({ error: "person_not_found" }, 404);
 
   const reading = await env.DB
@@ -131,6 +137,91 @@ async function postThresholds(env: Env, request: Request): Promise<Response> {
     .bind(safe_low, safe_high, critical_low, critical_high, stale_minutes, person_id)
     .run();
   if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
+  return jsonResponse({ ok: true });
+}
+
+async function postDosingSettings(env: Env, request: Request): Promise<Response> {
+  const body = await request.json<{
+    person_id?: string;
+    carb_ratio?: number | null;
+    correction_factor?: number | null;
+    target_glucose?: number | null;
+  }>();
+  if (!body.person_id) {
+    return jsonResponse({ error: "person_id is required" }, 400);
+  }
+  const carbRatio = body.carb_ratio ?? null;
+  const correctionFactor = body.correction_factor ?? null;
+  const targetGlucose = body.target_glucose ?? null;
+  if (
+    (carbRatio != null && carbRatio <= 0) ||
+    (correctionFactor != null && correctionFactor <= 0) ||
+    (targetGlucose != null && targetGlucose <= 0)
+  ) {
+    return jsonResponse({ error: "carb_ratio, correction_factor, and target_glucose must be positive" }, 400);
+  }
+  const result = await env.DB
+    .prepare(`UPDATE people SET carb_ratio = ?, correction_factor = ?, target_glucose = ? WHERE id = ?`)
+    .bind(carbRatio, correctionFactor, targetGlucose, body.person_id)
+    .run();
+  if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
+  return jsonResponse({ ok: true });
+}
+
+async function getInsulinLog(env: Env, personId: string, hours: number): Promise<Response> {
+  const since = Math.floor(Date.now() / 1000) - Math.round(hours * 3600);
+  const entries = await env.DB
+    .prepare(
+      `SELECT id, person_id, logged_at, carbs_grams, food_description, glucose_at_dose, dose_units, note
+       FROM insulin_log WHERE person_id = ? AND logged_at >= ? ORDER BY logged_at DESC`
+    )
+    .bind(personId, since)
+    .all();
+  return jsonResponse(entries.results);
+}
+
+async function postInsulinLog(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{
+    person_id?: string;
+    logged_at?: number;
+    carbs_grams?: number | null;
+    food_description?: string | null;
+    glucose_at_dose?: number | null;
+    dose_units?: number | null;
+    note?: string | null;
+  }>();
+  if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+  if (body.carbs_grams == null && body.dose_units == null) {
+    return jsonResponse({ error: "at least one of carbs_grams or dose_units is required" }, 400);
+  }
+  if ((body.carbs_grams != null && body.carbs_grams < 0) || (body.dose_units != null && body.dose_units < 0)) {
+    return jsonResponse({ error: "carbs_grams and dose_units must not be negative" }, 400);
+  }
+  const person = await env.DB.prepare(`SELECT id FROM people WHERE id = ?`).bind(body.person_id).first();
+  if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+
+  const result = await env.DB
+    .prepare(
+      `INSERT INTO insulin_log (person_id, logged_at, carbs_grams, food_description, glucose_at_dose, dose_units, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      body.person_id,
+      body.logged_at ?? now,
+      body.carbs_grams ?? null,
+      body.food_description ?? null,
+      body.glucose_at_dose ?? null,
+      body.dose_units ?? null,
+      body.note ?? null
+    )
+    .run();
+  return jsonResponse({ id: result.meta.last_row_id }, 201);
+}
+
+async function deleteInsulinLog(env: Env, id: string): Promise<Response> {
+  if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
+  const result = await env.DB.prepare(`DELETE FROM insulin_log WHERE id = ?`).bind(id).run();
+  if (result.meta.changes === 0) return jsonResponse({ error: "not_found" }, 404);
   return jsonResponse({ ok: true });
 }
 
@@ -229,6 +320,10 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
     return postThresholds(env, request);
   }
 
+  if (method === "POST" && path === "/api/settings/dosing") {
+    return postDosingSettings(env, request);
+  }
+
   if (method === "POST" && path === "/api/subscribers") {
     return postSubscriber(env, request);
   }
@@ -236,6 +331,22 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
   const subscriberDeleteMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "DELETE" && subscriberDeleteMatch) {
     return deleteSubscriber(env, subscriberDeleteMatch[1]);
+  }
+
+  if (method === "GET" && path === "/api/insulin-log") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    const hours = Number(url.searchParams.get("hours") ?? "720");
+    return getInsulinLog(env, personId, Number.isFinite(hours) && hours > 0 ? hours : 720);
+  }
+
+  if (method === "POST" && path === "/api/insulin-log") {
+    return postInsulinLog(env, request, now);
+  }
+
+  const insulinLogDeleteMatch = /^\/api\/insulin-log\/(\w+)$/.exec(path);
+  if (method === "DELETE" && insulinLogDeleteMatch) {
+    return deleteInsulinLog(env, insulinLogDeleteMatch[1]);
   }
 
   return jsonResponse({ error: "not_found" }, 404);

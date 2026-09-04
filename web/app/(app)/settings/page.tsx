@@ -6,6 +6,7 @@ import {
   getPeople,
   getSubscribers,
   removeSubscriber,
+  updateDosingSettings,
   updateThresholds,
   type Person,
   type Subscriber,
@@ -82,6 +83,74 @@ function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => voi
         />
       </label>
       <button type="submit">Save thresholds</button>
+      {status && <p className="meta">{status}</p>}
+    </form>
+  );
+}
+
+function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+  const [carbRatio, setCarbRatio] = useState(person.carb_ratio?.toString() ?? "");
+  const [correctionFactor, setCorrectionFactor] = useState(person.correction_factor?.toString() ?? "");
+  const [targetGlucose, setTargetGlucose] = useState(person.target_glucose?.toString() ?? "");
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setStatus(null);
+    try {
+      await updateDosingSettings(
+        person.id,
+        carbRatio ? Number(carbRatio) : null,
+        correctionFactor ? Number(correctionFactor) : null,
+        targetGlucose ? Number(targetGlucose) : null
+      );
+      setStatus("Saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <p className="meta">
+        Enter these exactly as prescribed by {person.name}&apos;s doctor. Used only for plain
+        arithmetic on the Log page, never AI-generated. Leave blank to hide the calculation.
+      </p>
+      <label>
+        Carb ratio (grams of carbs per 1 unit of insulin)
+        <input
+          type="number"
+          min="0"
+          step="0.1"
+          value={carbRatio}
+          onChange={(e) => setCarbRatio(e.target.value)}
+          placeholder="e.g. 10"
+        />
+      </label>
+      <label>
+        Correction factor (mg/dL drop per 1 unit)
+        <input
+          type="number"
+          min="0"
+          step="0.1"
+          value={correctionFactor}
+          onChange={(e) => setCorrectionFactor(e.target.value)}
+          placeholder="e.g. 40"
+        />
+      </label>
+      <label>
+        Target glucose for correction (mg/dL)
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value={targetGlucose}
+          onChange={(e) => setTargetGlucose(e.target.value)}
+          placeholder="e.g. 150"
+        />
+      </label>
+      <button type="submit">Save dosing formula</button>
       {status && <p className="meta">{status}</p>}
     </form>
   );
@@ -189,6 +258,10 @@ export default function SettingsPage() {
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Alert phone numbers</h3>
               <SubscriberManager personId={person.id} />
+            </div>
+            <div className="card">
+              <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
+              <DosingForm person={person} onSaved={refresh} />
             </div>
           </div>
         </section>

@@ -217,10 +217,26 @@ at the marketing page's layout, before calling this fully done.
 browser) to the deployed Worker's URL in Vercel's project env vars, then
 point watchgluco.com's DNS at Vercel.
 
+## Carb + insulin log
+
+`/log` (`web/app/(app)/log/`) records what was eaten and what dose was
+given, per person. `POST /api/insulin-log` (`src/api.ts`) stores
+`carbs_grams`, `food_description`, `glucose_at_dose`, `dose_units`, and a
+free-text `note`; `GET /api/insulin-log?person_id=&hours=` lists recent
+entries (default 30 days).
+
+**Dosing math is arithmetic only, never AI-generated** — see the safety
+note on the marketing page. Each person has three optional fields
+(`carb_ratio`, `correction_factor`, `target_glucose`, settable in Settings
+under "Dosing formula") entered by the user as prescribed by their doctor.
+`web/app/lib/dosing.ts` does the plain math client-side —
+`carbs / carb_ratio + max(0, (glucose - target) / correction_factor)` — and
+the Log page labels the result "per your saved formula," always with a
+"not medical advice, confirm with your care team" line. If a person has no
+formula configured, no calculation is shown at all.
+
 ## What's next (per the build spec)
 
 - **Session 6:** mobile app (Expo)
-- Carb + insulin dosing log (arithmetic only, no AI-generated dosing — see
-  the safety note on the marketing page)
 - AI-generated time-of-day pattern insights and weekly/bi-weekly/monthly
   reports
