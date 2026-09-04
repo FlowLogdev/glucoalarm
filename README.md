@@ -2,6 +2,11 @@
 
 Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`.
 
+**Live**: dashboard at https://watchgluco.vercel.app, API at
+https://watchgluco-worker.sales-ff4.workers.dev (mock Dexcom data, log-only
+messaging — see "Deploying" for going live with real credentials, and
+custom domain notes below).
+
 - **Session 1** (done): Worker skeleton, D1 schema, `MockDexcomClient`
   (random-walk readings) so the full pipeline — poll → store in D1 →
   threshold/staleness/cooldown logic → "send" SMS — is testable before real
@@ -203,19 +208,46 @@ at the marketing page's layout, before calling this fully done.
 
 ## Deploying
 
-**Worker:**
-1. `npx wrangler d1 create watchgluco-db` and paste the returned `database_id`
-   into `wrangler.toml` (currently `REPLACE_WITH_D1_DATABASE_ID`)
-2. `npm run db:migrate:remote`
-3. `npx wrangler secret put DEXCOM_ENC_KEY`, `TWILIO_SID`, `TWILIO_AUTH`,
-   `TWILIO_WHATSAPP_FROM` (see above, all without `--local`)
-4. `npm run deploy`
+**Current state**: both pieces are live (see the top of this file).
+Worker: Cloudflare account, `watchgluco-worker`, deployed via `wrangler
+deploy` (D1 remote database `watchgluco-db`, id in `wrangler.toml`).
+Dashboard: Vercel project `watchgluco` under the FlowLogdev team, root
+directory `web`, git-connected to this repo's `main` branch — every push
+auto-deploys. `DEXCOM_MODE=mock` and `MESSAGE_MODE=log` still, so it's
+running the full pipeline end to end (cron polls every minute, tiered
+alert logic runs, WhatsApp sends are logged not sent) without touching
+anyone's real Dexcom account or phone yet.
 
-**Dashboard:** deploy `web/` to Vercel as its own project (root directory
-`web`), set `API_BASE_URL` (server-only — do **not** prefix it
-`NEXT_PUBLIC_`, or the Worker's URL and the session flow both leak to the
-browser) to the deployed Worker's URL in Vercel's project env vars, then
-point watchgluco.com's DNS at Vercel.
+**Redeploying the Worker after a code change** (Vercel redeploys
+automatically on push, the Worker does not):
+```
+npm run db:migrate:remote   # if a new migration was added
+npm run deploy
+```
+
+**Going live with real data** — none of this is done yet:
+1. `npx wrangler secret put DEXCOM_ENC_KEY`, `TWILIO_SID`, `TWILIO_AUTH`,
+   `TWILIO_WHATSAPP_FROM`, `ANTHROPIC_API_KEY` (all without `--local` —
+   see the sections above for what each is for)
+2. Follow "Switching a person to real Dexcom Share data" and "Turning on
+   real WhatsApp sending" above, using `--remote` on the `wrangler d1
+   execute` commands instead of `--local`
+3. Flip `DEXCOM_MODE = "dexcom"` and `MESSAGE_MODE = "whatsapp"` in
+   `wrangler.toml`, then `npm run deploy`
+
+**Custom domain (watchgluco.com)** — not done yet. In Vercel: Project
+Settings → Domains → add `watchgluco.com`, then point its DNS (wherever
+it's registered) at Vercel per whatever records Vercel's domain UI shows
+you. This is a DNS-level, registrar-side change — worth doing deliberately
+rather than as part of a routine deploy.
+
+**A production lesson worth knowing if you touch `src/lib/password.ts`**:
+Cloudflare Workers' WebCrypto caps PBKDF2 at 100,000 iterations and throws
+`NotSupportedError` above that — but only on the real edge runtime, not in
+local `wrangler dev`/Miniflare. Something that works perfectly in every
+local test can still break login entirely the moment it's deployed. If
+you ever raise the iteration count, test against a real deployed Worker,
+not just `wrangler dev`.
 
 ## Carb + insulin log
 
