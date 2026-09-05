@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WatchGluco",
-  description: "Glucose monitoring dashboard",
+  title: "Glucoalarm",
+  description: "Glucose alarm monitor",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

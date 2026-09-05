@@ -1,6 +1,11 @@
-# WatchGluco — Cloudflare Worker
+# Glucoalarm — Cloudflare Worker
 
-Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`.
+Cron-driven glucose polling + alert pipeline, per `watchgluco-build-spec.md`
+(the product is branded **Glucoalarm**; internal infra resource names —
+the Worker, D1 database, and Vercel project — still use the original
+`watchgluco` names and haven't been renamed, since that means recreating
+cloud resources rather than a text change; see the "Custom domain" note
+below).
 
 **Live**: dashboard at https://watchgluco.vercel.app, API at
 https://watchgluco-worker.sales-ff4.workers.dev (mock Dexcom data, log-only
@@ -235,11 +240,14 @@ npm run deploy
 3. Flip `DEXCOM_MODE = "dexcom"` and `MESSAGE_MODE = "whatsapp"` in
    `wrangler.toml`, then `npm run deploy`
 
-**Custom domain (watchgluco.com)** — not done yet. In Vercel: Project
-Settings → Domains → add `watchgluco.com`, then point its DNS (wherever
-it's registered) at Vercel per whatever records Vercel's domain UI shows
-you. This is a DNS-level, registrar-side change — worth doing deliberately
-rather than as part of a routine deploy.
+**Custom domain**: the product's actual domain is `glucoalarm.com` (DNS
+managed in Cloudflare), not `watchgluco.com` from the original build spec.
+In Vercel: Project Settings → Domains → add `glucoalarm.com` (and
+`www.glucoalarm.com`), then add the exact DNS records Vercel's UI shows
+you in Cloudflare's DNS tab for that zone, with proxy status set to **DNS
+only (grey cloud)** — Cloudflare's proxy in front of Vercel's own
+routing/SSL is what caused the domain to serve a generic error page
+instead of the app on first attempt.
 
 **A production lesson worth knowing if you touch `src/lib/password.ts`**:
 Cloudflare Workers' WebCrypto caps PBKDF2 at 100,000 iterations and throws

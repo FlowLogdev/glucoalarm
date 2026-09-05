@@ -1,9 +1,11 @@
+import { Logo } from "./lib/Logo";
+
 export default function MarketingPage() {
   return (
     <div className="marketing">
       <nav className="marketing-nav">
-        <a className="brand" href="/">
-          WatchGluco
+        <a className="brand" href="/" style={{ display: "inline-flex" }}>
+          <Logo size={26} />
         </a>
         <a className="btn-primary" href="/login">
           Log in
@@ -99,7 +101,7 @@ export default function MarketingPage() {
       <section className="safety">
         <h2>Information, not instructions.</h2>
         <p>
-          WatchGluco logs carb counts and insulin doses, and can show the math for a
+          Glucoalarm logs carb counts and insulin doses, and can show the math for a
           correction factor you enter yourself, as prescribed by your doctor. It does not
           calculate or suggest insulin doses. Dosing decisions stay with you and your care
           team.
@@ -108,7 +110,7 @@ export default function MarketingPage() {
 
       <footer className="marketing-footer">
         <div className="marketing-footer-inner">
-          <span>WatchGluco</span>
+          <span>Glucoalarm</span>
           <span>Support: support@flowlog.dev</span>
         </div>
       </footer>
