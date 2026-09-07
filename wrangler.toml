@@ -3,7 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 [triggers]
-crons = ["*/1 * * * *"]
+# Dexcom G7 itself only reports a new reading every ~5 min, so polling more
+# often than that is pure waste (and was a major contributor to a D1
+# rows_read quota incident on 2026-09-07 — see migrations/0008).
+crons = ["*/5 * * * *"]
 
 [[d1_databases]]
 binding = "DB"
