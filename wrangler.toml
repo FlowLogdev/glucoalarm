@@ -24,6 +24,7 @@ DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
 # Set to "log" to just console.log message bodies, "whatsapp" to actually send.
 MESSAGE_MODE = "whatsapp"
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+PUBLIC_WORKER_URL = "https://watchgluco-worker.sales-ff4.workers.dev"
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest

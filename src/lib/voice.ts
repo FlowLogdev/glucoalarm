@@ -2,7 +2,7 @@ import type { Env } from "../types";
 
 export class TwilioVoiceError extends Error {}
 
-function escapeXml(text: string): string {
+export function escapeXml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -13,17 +13,25 @@ function escapeXml(text: string): string {
 
 /**
  * Places a real phone call reading the alert aloud via Twilio's Voice API,
- * using inline TwiML (no separate webhook endpoint needed). Repeats the
- * message twice since a phone call is easy to half-hear.
+ * using inline TwiML (no separate webhook endpoint needed for the call
+ * itself). Offers a <Gather> so the recipient can press 1 to acknowledge --
+ * Twilio POSTs the keypress to `actionUrl` (see /api/calls/ack). If nobody
+ * presses anything, falls through to repeating the message once more and
+ * hanging up; the call itself doesn't retry -- pollPerson's 5-min repeat
+ * cadence handles that on the next poll.
  */
-export async function makeVoiceCall(to: string, message: string, env: Env): Promise<void> {
+export async function makeVoiceCall(to: string, message: string, actionUrl: string, env: Env): Promise<void> {
   if (env.MESSAGE_MODE !== "whatsapp") {
-    console.log(`[Voice call stub] to=${to} message=${message}`);
+    console.log(`[Voice call stub] to=${to} message=${message} actionUrl=${actionUrl}`);
     return;
   }
 
-  const say = `<Say voice="Polly.Joanna">${escapeXml(message)}</Say>`;
-  const twiml = `<Response>${say}<Pause length="1"/>${say}</Response>`;
+  const say = `<Say voice="Polly.Joanna">${escapeXml(message)} Please acknowledge by pressing 1. If you press 1, you will not receive more calls for this low.</Say>`;
+  const twiml =
+    `<Response>` +
+    `<Gather numDigits="1" timeout="10" action="${escapeXml(actionUrl)}" method="POST">${say}</Gather>` +
+    say +
+    `</Response>`;
 
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Calls.json`, {
     method: "POST",
@@ -41,5 +49,5 @@ export async function makeVoiceCall(to: string, message: string, env: Env): Prom
 }
 
 export function callMessageFor(name: string, value: number, time: string): string {
-  return `This is an alert from Glucoalarm. ${name}'s glucose is low at ${value} milligrams per deciliter, recorded at ${time}. Please check on ${name} now.`;
+  return `This is an alert from Glucoalarm. ${name}'s glucose is low at ${value} milligrams per deciliter, recorded at ${time}.`;
 }

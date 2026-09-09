@@ -11,4 +11,5 @@ export interface Env {
   TWILIO_VOICE_FROM: string; // set via `wrangler secret put`, a Voice-capable Twilio number
   ANTHROPIC_API_KEY: string; // set via `wrangler secret put`
   ANTHROPIC_MODEL: string; // e.g. "claude-haiku-4-5-20251001"
+  PUBLIC_WORKER_URL: string; // this Worker's own public URL, for Twilio's <Gather> action callback
 }

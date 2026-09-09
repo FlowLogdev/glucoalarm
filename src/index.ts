@@ -1,11 +1,12 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyAlert, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
+import { classifyAlert, classifyTier, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, messageFor } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
+import { handleCallAck } from "./calls-webhook";
 import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
@@ -16,16 +17,16 @@ interface PersonRow extends Person {
   dexcom_session_expires_at: number | null;
   timezone: string | null;
   last_low_call_at: number | null;
+  low_call_acknowledged: number;
+  low_call_critical_escalated: number;
 }
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
 const SESSION_TTL_SECONDS = 23 * 60 * 60;
 
-// Phone calls for a low reading are far more disruptive than a WhatsApp
-// message, so they get their own longer cooldown independent of the
-// 5-min/1-min WhatsApp cadence -- otherwise it would ring every 5 minutes
-// nonstop for a sustained low.
-const LOW_CALL_COOLDOWN_SECONDS = 30 * 60;
+// Calls repeat every 5 min while low and unacknowledged (a person pressing
+// 1 on the call stops further repeats until the tier returns to safe).
+const LOW_CALL_REPEAT_SECONDS = 5 * 60;
 
 async function cacheSession(
   person: PersonRow,
@@ -153,6 +154,22 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     }
   }
 
+  const tier = classifyTier(person, value);
+  const isLowTier = tier === "warn_low" || tier === "critical_low";
+
+  // Reset low-call escalation state as soon as we're back in a safe tier,
+  // regardless of whether a "recovered" message also happens to fire this
+  // poll -- otherwise a future low episode could inherit a stale
+  // acknowledgment and silently skip calling.
+  if (!isLowTier && (person.low_call_acknowledged || person.low_call_critical_escalated)) {
+    await env.DB
+      .prepare(`UPDATE people SET low_call_acknowledged = 0, low_call_critical_escalated = 0 WHERE id = ?`)
+      .bind(person.id)
+      .run();
+    person.low_call_acknowledged = 0;
+    person.low_call_critical_escalated = 0;
+  }
+
   if (!alertType) return;
 
   const lastSameTypeAlert = await env.DB
@@ -197,27 +214,31 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     .bind(person.id, alertType, value, now)
     .run();
 
-  const isLow = alertType === "warn_low" || alertType === "critical_low";
-  const callCooldownOver =
-    !person.last_low_call_at || now - person.last_low_call_at >= LOW_CALL_COOLDOWN_SECONDS;
+  if (isLowTier && !person.low_call_acknowledged) {
+    const dueForRepeat = !person.last_low_call_at || now - person.last_low_call_at >= LOW_CALL_REPEAT_SECONDS;
+    const dueForEscalation = tier === "critical_low" && !person.low_call_critical_escalated;
 
-  if (isLow && callCooldownOver) {
-    const callMessage = callMessageFor(person.name, value, time);
-    let calledAnyone = false;
-    for (const sub of subscribers.results) {
-      if (!sub.call_on_low) continue;
-      calledAnyone = true;
-      try {
-        await makeVoiceCall(sub.phone_number, callMessage, env);
-      } catch (err) {
-        console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
+    if (dueForRepeat || dueForEscalation) {
+      const callMessage = callMessageFor(person.name, value, time);
+      const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}`;
+      let calledAnyone = false;
+      for (const sub of subscribers.results) {
+        if (!sub.call_on_low) continue;
+        calledAnyone = true;
+        try {
+          await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env);
+        } catch (err) {
+          console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
+        }
       }
-    }
-    if (calledAnyone) {
-      await env.DB
-        .prepare(`UPDATE people SET last_low_call_at = ? WHERE id = ?`)
-        .bind(now, person.id)
-        .run();
+      if (calledAnyone) {
+        await env.DB
+          .prepare(
+            `UPDATE people SET last_low_call_at = ?, low_call_critical_escalated = MAX(low_call_critical_escalated, ?) WHERE id = ?`
+          )
+          .bind(now, dueForEscalation ? 1 : 0, person.id)
+          .run();
+      }
     }
   }
 }
@@ -242,6 +263,15 @@ export default {
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url0 = new URL(request.url);
+    // Twilio webhook -- public by necessity (Twilio can't send our bearer
+    // token), secured via its own signature verification instead. Must be
+    // checked before handleApi, which would otherwise 401 it as an
+    // unauthenticated /api/* request.
+    if (request.method === "POST" && url0.pathname === "/api/calls/ack") {
+      return handleCallAck(request, env);
+    }
+
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
     if (apiResponse) return apiResponse;
 
