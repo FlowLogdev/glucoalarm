@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getPeople, getLatestReading, type LatestReadingResponse, type Person } from "../../lib/api";
 import { trendArrow, statusColor, statusLabel, minutesAgo } from "../../lib/format";
+import { suggestedDose } from "../../lib/dosing";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -89,6 +90,71 @@ function PersonCard({ person }: { person: Person }) {
   );
 }
 
+function CalculatorCard({ person }: { person: Person }) {
+  const [carbs, setCarbs] = useState("");
+  const [glucose, setGlucose] = useState("");
+
+  const hasFormula = person.carb_ratio != null || person.correction_factor != null;
+  const suggestion = suggestedDose(person, carbs ? Number(carbs) : null, glucose ? Number(glucose) : null);
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Insulin calculator — {person.name}</h3>
+      {!hasFormula ? (
+        <p className="meta">
+          No dosing formula set for {person.name} yet. Add one in Settings (carb ratio /
+          correction factor) to use this calculator.
+        </p>
+      ) : (
+        <>
+          <div className="card-grid" style={{ gap: "1rem" }}>
+            <label>
+              Carbs eaten (g)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={carbs}
+                onChange={(e) => setCarbs(e.target.value)}
+                placeholder="e.g. 45"
+              />
+            </label>
+            <label>
+              Current glucose (mg/dL)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={glucose}
+                onChange={(e) => setGlucose(e.target.value)}
+                placeholder="e.g. 180"
+              />
+            </label>
+          </div>
+
+          {suggestion ? (
+            <div className="card" style={{ background: "var(--bg)", marginTop: "1rem" }}>
+              <p className="meta" style={{ marginBottom: "0.4rem" }}>
+                Per {person.name}&apos;s saved formula: {suggestion.carbPortion.toFixed(1)}u for carbs
+                {suggestion.correctionPortion > 0 && ` + ${suggestion.correctionPortion.toFixed(1)}u correction`}
+              </p>
+              <p style={{ fontWeight: 700, fontSize: "1.5rem", margin: 0 }}>{suggestion.total}u</p>
+            </div>
+          ) : (
+            <p className="meta" style={{ marginTop: "1rem" }}>
+              Enter carbs and/or glucose above to calculate.
+            </p>
+          )}
+          <p className="meta" style={{ marginTop: "0.75rem" }}>
+            Plain arithmetic from the formula in Settings only. Not medical advice, not
+            AI-generated. Confirm with your care team before dosing.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +189,11 @@ export default function DashboardPage() {
       <div className="card-grid">
         {people.map((p) => (
           <PersonCard key={p.id} person={p} />
+        ))}
+      </div>
+      <div style={{ marginTop: "1.5rem" }} className="card-grid">
+        {people.map((p) => (
+          <CalculatorCard key={p.id} person={p} />
         ))}
       </div>
     </section>
