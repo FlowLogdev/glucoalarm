@@ -13,6 +13,7 @@ interface PersonRow extends Person {
   dexcom_password: string; // AES-GCM encrypted, see src/lib/crypto.ts
   dexcom_session_id: string | null;
   dexcom_session_expires_at: number | null;
+  timezone: string | null;
 }
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
@@ -102,10 +103,10 @@ async function fetchNewReadings(
 async function pollPerson(person: PersonRow, env: Env, now: number): Promise<void> {
   const lastReading = await env.DB
     .prepare(
-      `SELECT value_mgdl, recorded_at, received_at FROM readings WHERE person_id = ? ORDER BY recorded_at DESC LIMIT 1`
+      `SELECT value_mgdl, trend, recorded_at, received_at FROM readings WHERE person_id = ? ORDER BY recorded_at DESC LIMIT 1`
     )
     .bind(person.id)
-    .first<{ value_mgdl: number; recorded_at: number; received_at: number }>();
+    .first<{ value_mgdl: number; trend: string; recorded_at: number; received_at: number }>();
 
   const newReadings = await fetchNewReadings(person, env, lastReading?.recorded_at ?? null, now);
 
@@ -122,7 +123,8 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
 
   const latest = newReadings[newReadings.length - 1] ?? null;
   const value = latest?.value ?? lastReading!.value_mgdl;
-  const trend = latest?.trend ?? null;
+  const trend = latest?.trend ?? lastReading?.trend ?? null;
+  const recordedAt = latest?.timestamp ?? lastReading!.recorded_at;
   const lastReceivedAt = latest ? now : lastReading!.received_at;
 
   const lastAlert = await env.DB
@@ -156,7 +158,15 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     .bind(person.id)
     .all<{ phone_number: string }>();
 
-  const time = new Date(now * 1000).toISOString();
+  // The reading's actual time, not "now" -- otherwise a repeated alert on a
+  // stale value looks like fresh data is still arriving every cooldown tick.
+  const time = new Intl.DateTimeFormat("en-US", {
+    timeZone: person.timezone ?? "UTC",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(recordedAt * 1000));
   const body = messageFor(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {

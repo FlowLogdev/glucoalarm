@@ -45,15 +45,16 @@ export function messageFor(
   staleMinutes: number | null,
   time: string
 ): string {
+  const trendPart = trend ? `, ${trend}` : "";
   switch (type) {
     case "warn_low":
-      return `⚠️ LOW — ${name}: ${value} mg/dL, ${trend} (${time})`;
+      return `⚠️ LOW — ${name}: ${value} mg/dL${trendPart} (${time})`;
     case "critical_low":
-      return `🚨 CRITICAL LOW — ${name}: ${value} mg/dL, ${trend}. ACT NOW. (${time})`;
+      return `🚨 CRITICAL LOW — ${name}: ${value} mg/dL${trendPart}. ACT NOW. (${time})`;
     case "warn_high":
-      return `⚠️ HIGH — ${name}: ${value} mg/dL, ${trend} (${time})`;
+      return `⚠️ HIGH — ${name}: ${value} mg/dL${trendPart} (${time})`;
     case "critical_high":
-      return `🚨 CRITICAL HIGH — ${name}: ${value} mg/dL, ${trend}. ACT NOW. (${time})`;
+      return `🚨 CRITICAL HIGH — ${name}: ${value} mg/dL${trendPart}. ACT NOW. (${time})`;
     case "signal_lost":
       return `📵 No reading from ${name}'s Dexcom in ${staleMinutes}+ min (last: ${value} mg/dL at ${time})`;
     case "recovered":
