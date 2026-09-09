@@ -15,14 +15,14 @@ database_id = "95338fb1-8d06-49bb-aa7c-d51d5a3ba61d"
 
 [vars]
 # Set to "mock" for local/testing, "dexcom" to poll the real Dexcom Share API.
-DEXCOM_MODE = "mock"
+DEXCOM_MODE = "dexcom"
 # share2.dexcom.com for US accounts, shareous1.dexcom.com for outside-US accounts.
 DEXCOM_BASE_URL = "https://share2.dexcom.com"
 # Public Dexcom Share follower application ID (not a secret) — override only
 # if you're using a different registered app.
 DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
 # Set to "log" to just console.log message bodies, "whatsapp" to actually send.
-MESSAGE_MODE = "log"
+MESSAGE_MODE = "whatsapp"
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
 # Secrets (not stored here — set via `wrangler secret put`):
