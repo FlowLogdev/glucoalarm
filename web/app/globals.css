@@ -80,6 +80,15 @@ main {
   justify-content: space-between;
 }
 
+.person-card .name a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.person-card .name a:hover {
+  text-decoration: underline;
+}
+
 .status-dot {
   display: inline-block;
   width: 10px;

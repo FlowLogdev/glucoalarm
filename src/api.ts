@@ -16,7 +16,7 @@ function jsonResponse(data: unknown, status = 200): Response {
 function corsHeaders(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return new Response(res.body, { status: res.status, headers });
 }
@@ -104,7 +104,7 @@ async function getReportRoute(env: Env, personId: string, periodParam: string | 
 async function getSubscribers(env: Env, personId: string): Promise<Response> {
   const subs = await env.DB
     .prepare(
-      `SELECT id, person_id, phone_number, label FROM phone_subscribers WHERE person_id = ?`
+      `SELECT id, person_id, phone_number, label, call_on_low, call_priority FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(personId)
     .all();
@@ -293,7 +293,13 @@ async function deleteInsulinLog(env: Env, id: string): Promise<Response> {
 const E164 = /^\+[1-9]\d{6,14}$/;
 
 async function postSubscriber(env: Env, request: Request): Promise<Response> {
-  const body = await request.json<{ person_id?: string; phone_number?: string; label?: string }>();
+  const body = await request.json<{
+    person_id?: string;
+    phone_number?: string;
+    label?: string;
+    call_on_low?: boolean;
+    call_priority?: number;
+  }>();
   if (!body.person_id || !body.phone_number) {
     return jsonResponse({ error: "person_id and phone_number are required" }, 400);
   }
@@ -304,10 +310,37 @@ async function postSubscriber(env: Env, request: Request): Promise<Response> {
   if (!person) return jsonResponse({ error: "person_not_found" }, 404);
 
   const result = await env.DB
-    .prepare(`INSERT INTO phone_subscribers (person_id, phone_number, label) VALUES (?, ?, ?)`)
-    .bind(body.person_id, body.phone_number, body.label ?? null)
+    .prepare(
+      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority) VALUES (?, ?, ?, ?, ?)`
+    )
+    .bind(body.person_id, body.phone_number, body.label ?? null, body.call_on_low ? 1 : 0, body.call_priority ?? 0)
     .run();
   return jsonResponse({ id: result.meta.last_row_id }, 201);
+}
+
+async function patchSubscriber(env: Env, id: string, request: Request): Promise<Response> {
+  if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
+  const body = await request.json<{ call_on_low?: boolean; call_priority?: number }>();
+  if (body.call_on_low == null && body.call_priority == null) {
+    return jsonResponse({ error: "call_on_low or call_priority is required" }, 400);
+  }
+
+  const current = await env.DB
+    .prepare(`SELECT call_on_low, call_priority FROM phone_subscribers WHERE id = ?`)
+    .bind(id)
+    .first<{ call_on_low: number; call_priority: number }>();
+  if (!current) return jsonResponse({ error: "not_found" }, 404);
+
+  const result = await env.DB
+    .prepare(`UPDATE phone_subscribers SET call_on_low = ?, call_priority = ? WHERE id = ?`)
+    .bind(
+      body.call_on_low != null ? (body.call_on_low ? 1 : 0) : current.call_on_low,
+      body.call_priority ?? current.call_priority,
+      id
+    )
+    .run();
+  if (result.meta.changes === 0) return jsonResponse({ error: "not_found" }, 404);
+  return jsonResponse({ ok: true });
 }
 
 async function deleteSubscriber(env: Env, id: string): Promise<Response> {
@@ -416,6 +449,11 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
   const subscriberDeleteMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "DELETE" && subscriberDeleteMatch) {
     return deleteSubscriber(env, subscriberDeleteMatch[1]);
+  }
+
+  const subscriberPatchMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
+  if (method === "PATCH" && subscriberPatchMatch) {
+    return patchSubscriber(env, subscriberPatchMatch[1], request);
   }
 
   if (method === "GET" && path === "/api/insulin-log") {

@@ -6,18 +6,25 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { getHistory, getPeople, type Person, type Reading } from "../../../lib/api";
+import { getHistory, getPeople, type Person, type Reading, type ReportPeriod } from "../../../lib/api";
+import { InsightCard } from "../../../lib/InsightCard";
 
 const RANGES = [
   { label: "3h", hours: 3 },
   { label: "24h", hours: 24 },
   { label: "7d", hours: 24 * 7 },
 ];
+
+// Hours-range picker above maps loosely onto the AI insight's own periods.
+function periodFor(hours: number): ReportPeriod {
+  return hours <= 24 ? "week" : "month";
+}
 
 export default function HistoryPage() {
   const params = useParams<{ personId: string }>();
@@ -52,6 +59,8 @@ export default function HistoryPage() {
       value: r.value_mgdl,
     })) ?? [];
 
+  const yMax = Math.max(300, person?.critical_high ?? 250);
+
   return (
     <section>
       <h1>{person?.name ?? personId} — History</h1>
@@ -79,14 +88,44 @@ export default function HistoryPage() {
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#262b33" />
               <XAxis dataKey="time" stroke="#9aa1ab" fontSize={12} minTickGap={40} />
-              <YAxis stroke="#9aa1ab" fontSize={12} domain={[40, 300]} />
+              <YAxis stroke="#9aa1ab" fontSize={12} domain={[40, yMax]} />
               <Tooltip
                 contentStyle={{ background: "#15181d", border: "1px solid #262b33", color: "#e8eaed" }}
               />
+              {person && (
+                <>
+                  {/* Tier bands so a rise/drop out of range is visible at a glance,
+                      not just readable from the tooltip. */}
+                  <ReferenceArea y1={person.critical_high} y2={yMax} fill="var(--status-red)" fillOpacity={0.08} />
+                  <ReferenceArea
+                    y1={person.safe_high}
+                    y2={person.critical_high}
+                    fill="var(--status-orange)"
+                    fillOpacity={0.08}
+                  />
+                  <ReferenceArea
+                    y1={person.safe_low}
+                    y2={person.safe_high}
+                    fill="var(--status-green)"
+                    fillOpacity={0.06}
+                  />
+                  <ReferenceArea
+                    y1={person.critical_low}
+                    y2={person.safe_low}
+                    fill="var(--status-orange)"
+                    fillOpacity={0.08}
+                  />
+                  <ReferenceArea y1={40} y2={person.critical_low} fill="var(--status-red)" fillOpacity={0.08} />
+                </>
+              )}
               <Line type="monotone" dataKey="value" stroke="#2fb96a" dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         )}
+      </div>
+
+      <div style={{ marginTop: "1.5rem" }}>
+        <InsightCard personId={personId} period={periodFor(hours)} />
       </div>
     </section>
   );

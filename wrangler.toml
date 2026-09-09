@@ -31,5 +31,6 @@ ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 #   TWILIO_AUTH            Twilio Auth Token
 #   TWILIO_WHATSAPP_FROM   Twilio WhatsApp-enabled sender number, E.164, e.g. +14155238886
 #                          (the Sandbox number while testing: +14155238886)
+#   TWILIO_VOICE_FROM      Voice-capable Twilio number, E.164, for low-glucose phone calls
 #   ANTHROPIC_API_KEY      from console.anthropic.com, powers the Reports page's
 #                          time-of-day pattern insight ("Generate insight" button)

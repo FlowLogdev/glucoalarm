@@ -52,12 +52,14 @@ export function messageFor(
     case "critical_low":
       return `🚨 CRITICAL LOW — ${name}: ${value} mg/dL${trendPart}. ACT NOW. (${time})`;
     case "warn_high":
-      return `⚠️ HIGH — ${name}: ${value} mg/dL${trendPart} (${time})`;
+      return `⚠️ ATTENTION — ${name}: ${value} mg/dL${trendPart} (${time})`;
     case "critical_high":
-      return `🚨 CRITICAL HIGH — ${name}: ${value} mg/dL${trendPart}. ACT NOW. (${time})`;
+      return `🚨 HIGH — ${name}: ${value} mg/dL${trendPart}. ACT NOW. (${time})`;
     case "signal_lost":
       return `📵 No reading from ${name}'s Dexcom in ${staleMinutes}+ min (last: ${value} mg/dL at ${time})`;
     case "recovered":
       return `✅ ${name} back in safe range: ${value} mg/dL (${time})`;
+    case "signal_restored":
+      return `📶 ${name}'s Dexcom signal is back: ${value} mg/dL${trendPart} (${time})`;
   }
 }

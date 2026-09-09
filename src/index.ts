@@ -3,6 +3,7 @@ import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, messageFor } from "./lib/whatsapp";
+import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
 import { bearerToken, getSessionAdmin } from "./auth";
@@ -14,10 +15,17 @@ interface PersonRow extends Person {
   dexcom_session_id: string | null;
   dexcom_session_expires_at: number | null;
   timezone: string | null;
+  last_low_call_at: number | null;
 }
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
 const SESSION_TTL_SECONDS = 23 * 60 * 60;
+
+// Phone calls for a low reading are far more disruptive than a WhatsApp
+// message, so they get their own longer cooldown independent of the
+// 5-min/1-min WhatsApp cadence -- otherwise it would ring every 5 minutes
+// nonstop for a sustained low.
+const LOW_CALL_COOLDOWN_SECONDS = 30 * 60;
 
 async function cacheSession(
   person: PersonRow,
@@ -140,6 +148,9 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     alertType = "signal_lost";
   } else {
     alertType = classifyAlert(person, value, lastAlert?.type ?? null);
+    if (!alertType && lastAlert?.type === "signal_lost") {
+      alertType = "signal_restored";
+    }
   }
 
   if (!alertType) return;
@@ -154,9 +165,11 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
   if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
 
   const subscribers = await env.DB
-    .prepare(`SELECT phone_number FROM phone_subscribers WHERE person_id = ?`)
+    .prepare(
+      `SELECT phone_number, call_on_low FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+    )
     .bind(person.id)
-    .all<{ phone_number: string }>();
+    .all<{ phone_number: string; call_on_low: number }>();
 
   // The reading's actual time, not "now" -- otherwise a repeated alert on a
   // stale value looks like fresh data is still arriving every cooldown tick.
@@ -183,6 +196,30 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     .prepare(`INSERT INTO alerts_log (person_id, type, value_mgdl, sent_at) VALUES (?, ?, ?, ?)`)
     .bind(person.id, alertType, value, now)
     .run();
+
+  const isLow = alertType === "warn_low" || alertType === "critical_low";
+  const callCooldownOver =
+    !person.last_low_call_at || now - person.last_low_call_at >= LOW_CALL_COOLDOWN_SECONDS;
+
+  if (isLow && callCooldownOver) {
+    const callMessage = callMessageFor(person.name, value, time);
+    let calledAnyone = false;
+    for (const sub of subscribers.results) {
+      if (!sub.call_on_low) continue;
+      calledAnyone = true;
+      try {
+        await makeVoiceCall(sub.phone_number, callMessage, env);
+      } catch (err) {
+        console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
+      }
+    }
+    if (calledAnyone) {
+      await env.DB
+        .prepare(`UPDATE people SET last_low_call_at = ? WHERE id = ?`)
+        .bind(now, person.id)
+        .run();
+    }
+  }
 }
 
 async function pollAll(env: Env): Promise<void> {

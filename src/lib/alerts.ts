@@ -4,7 +4,8 @@ export type AlertType =
   | "warn_high"
   | "critical_high"
   | "recovered"
-  | "signal_lost";
+  | "signal_lost"
+  | "signal_restored";
 
 export type Tier = "safe" | "warn_low" | "critical_low" | "warn_high" | "critical_high";
 
@@ -25,6 +26,7 @@ const COOLDOWN_SECONDS: Record<AlertType, number> = {
   critical_high: 60,
   recovered: 0, // self-limiting: only fires on a tier transition, see classifyAlert
   signal_lost: 15 * 60,
+  signal_restored: 0, // self-limiting: only fires on the signal_lost -> ok transition
 };
 
 export interface ThresholdBand {

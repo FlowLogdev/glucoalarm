@@ -40,7 +40,9 @@ function PersonCard({ person }: { person: Person }) {
   if (error) {
     return (
       <div className="card person-card" style={statusVar("var(--status-gray)")}>
-        <div className="name">{person.name}</div>
+        <div className="name">
+          <a href={`/history/${person.id}`}>{person.name}</a>
+        </div>
         <p className="meta">Couldn&apos;t reach the API: {error}</p>
       </div>
     );
@@ -49,7 +51,9 @@ function PersonCard({ person }: { person: Person }) {
   if (!data) {
     return (
       <div className="card person-card" style={statusVar("var(--status-gray)")}>
-        <div className="name">{person.name}</div>
+        <div className="name">
+          <a href={`/history/${person.id}`}>{person.name}</a>
+        </div>
         <p className="meta">Loading…</p>
       </div>
     );
@@ -60,7 +64,7 @@ function PersonCard({ person }: { person: Person }) {
   return (
     <div className="card person-card" style={statusVar(statusColor(status))}>
       <div className="name">
-        {person.name}
+        <a href={`/history/${person.id}`}>{person.name}</a>
         <span className="status-dot" />
       </div>
       {reading ? (
