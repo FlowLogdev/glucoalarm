@@ -19,6 +19,7 @@ interface PersonRow extends Person {
   last_low_call_at: number | null;
   low_call_acknowledged: number;
   low_call_critical_escalated: number;
+  last_glucose_ticker_at: number | null;
 }
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
@@ -27,6 +28,11 @@ const SESSION_TTL_SECONDS = 23 * 60 * 60;
 // Calls repeat every 5 min while low and unacknowledged (a person pressing
 // 1 on the call stops further repeats until the tier returns to safe).
 const LOW_CALL_REPEAT_SECONDS = 5 * 60;
+
+// Safe-range WhatsApp ticker cadence -- deliberately slower than the 5-min
+// poll interval to control cost (every-poll was the first cut, this is a
+// scaled-back version of the same feature).
+const GLUCOSE_TICKER_SECONDS = 20 * 60;
 
 async function cacheSession(
   person: PersonRow,
@@ -192,13 +198,21 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     // the cooldown below -- only the safe tier needs an explicit ticker so
     // recipients see a live number instead of silence between tier changes.
     if (tier === "safe") {
-      const body = glucoseUpdateMessage(person.name, value, trend, time);
-      for (const sub of subscribers.results) {
-        try {
-          await sendWhatsApp(sub.phone_number, body, env);
-        } catch (err) {
-          console.error(`sendWhatsApp (ticker) failed for ${person.id} -> ${sub.phone_number}:`, err);
+      const dueForTicker =
+        !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= GLUCOSE_TICKER_SECONDS;
+      if (dueForTicker) {
+        const body = glucoseUpdateMessage(person.name, value, trend, time);
+        for (const sub of subscribers.results) {
+          try {
+            await sendWhatsApp(sub.phone_number, body, env);
+          } catch (err) {
+            console.error(`sendWhatsApp (ticker) failed for ${person.id} -> ${sub.phone_number}:`, err);
+          }
         }
+        await env.DB
+          .prepare(`UPDATE people SET last_glucose_ticker_at = ? WHERE id = ?`)
+          .bind(now, person.id)
+          .run();
       }
     }
     return;
