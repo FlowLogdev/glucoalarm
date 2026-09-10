@@ -3,6 +3,8 @@ import { bearerToken, getSessionAdmin, login, logout, type Admin } from "./auth"
 import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
+import { getBilling, postBillingPortal } from "./billing";
+import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus } from "./support";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
@@ -571,6 +573,37 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   if (method === "DELETE" && insulinLogDeleteMatch) {
     if (!(await assertOwnsInsulinLogEntry(env, a, insulinLogDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return deleteInsulinLog(env, insulinLogDeleteMatch[1]);
+  }
+
+  if (method === "GET" && path === "/api/billing") {
+    return getBilling(env, a);
+  }
+
+  if (method === "POST" && path === "/api/billing/portal") {
+    return postBillingPortal(env, a, request);
+  }
+
+  if (method === "GET" && path === "/api/support/tickets") {
+    return getTickets(env, a);
+  }
+
+  if (method === "POST" && path === "/api/support/tickets") {
+    return postTicket(env, a, request, now);
+  }
+
+  const ticketGetMatch = /^\/api\/support\/tickets\/(\w+)$/.exec(path);
+  if (method === "GET" && ticketGetMatch) {
+    return getTicket(env, a, ticketGetMatch[1]);
+  }
+
+  const ticketPatchMatch = /^\/api\/support\/tickets\/(\w+)$/.exec(path);
+  if (method === "PATCH" && ticketPatchMatch) {
+    return patchTicketStatus(env, a, ticketPatchMatch[1], request, now);
+  }
+
+  const ticketReplyMatch = /^\/api\/support\/tickets\/(\w+)\/reply$/.exec(path);
+  if (method === "POST" && ticketReplyMatch) {
+    return postTicketReply(env, a, ticketReplyMatch[1], request, now);
   }
 
   return jsonResponse({ error: "not_found" }, 404);

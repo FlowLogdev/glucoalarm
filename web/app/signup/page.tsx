@@ -32,17 +32,21 @@ export default function SignupPage() {
       </nav>
 
       <section style={{ maxWidth: 480, margin: "3rem auto", padding: "0 1.5rem" }}>
-        <h1>Start monitoring today</h1>
+        <h1>Start your 7-day free trial</h1>
         <p className="meta">
-          One flat monthly price. Connect your own Dexcom Share account, add up to two phone
-          numbers, and start receiving WhatsApp alerts and low-glucose phone calls within
-          minutes.
+          One flat monthly price after the trial. Connect your own Dexcom Share account, add up
+          to two phone numbers, and start receiving WhatsApp alerts and low-glucose phone calls
+          within minutes.
         </p>
 
         <div className="card" style={{ marginTop: "1.5rem" }}>
           <h3 style={{ marginTop: 0 }}>Glucoalarm</h3>
           <p style={{ fontSize: "2rem", fontWeight: 700, margin: "0.25rem 0" }}>
-            $39<span style={{ fontSize: "1rem", fontWeight: 400 }}> / month</span>
+            $59.99<span style={{ fontSize: "1rem", fontWeight: 400 }}> / month</span>
+          </p>
+          <p className="meta" style={{ margin: "0 0 1rem" }}>
+            First 7 days free. Your card is charged starting day 8, then monthly until you
+            cancel.
           </p>
           <ul style={{ paddingLeft: "1.2rem", lineHeight: 1.8 }}>
             <li>One monitored person, connected via Dexcom Share</li>
@@ -51,15 +55,16 @@ export default function SignupPage() {
             <li>Configurable thresholds and update cadence</li>
           </ul>
           <button className="btn-primary" onClick={onSubscribe} disabled={loading} style={{ width: "100%", marginTop: "1rem" }}>
-            {loading ? "Starting checkout..." : "Subscribe"}
+            {loading ? "Starting checkout..." : "Start free trial"}
           </button>
           {error && <p className="meta">{error}</p>}
         </div>
 
         <p className="meta" style={{ marginTop: "1.5rem" }}>
           Glucoalarm is a notification tool, not a medical device. It does not calculate or
-          suggest insulin doses. After payment, you&apos;ll set up your account and connect
-          Dexcom in a few short steps.
+          suggest insulin doses. After checkout, you&apos;ll set up your account and connect
+          Dexcom in a few short steps. See our <a href="/refund-policy">refund policy</a> and{" "}
+          <a href="/terms">terms</a>.
         </p>
       </section>
     </div>

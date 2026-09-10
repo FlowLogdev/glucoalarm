@@ -214,6 +214,52 @@ export function generateInsight(personId: string, period: ReportPeriod): Promise
   });
 }
 
+export interface BillingInfo {
+  display_name: string;
+  subscription_status: string;
+  has_billing_account: boolean;
+}
+
+export function getBilling(): Promise<BillingInfo> {
+  return apiFetch<BillingInfo>("/billing");
+}
+
+export async function openBillingPortal(): Promise<void> {
+  const { url } = await apiFetch<{ url: string }>("/billing/portal", { method: "POST", body: JSON.stringify({}) });
+  window.location.href = url;
+}
+
+export interface SupportTicket {
+  id: number;
+  subject: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SupportTicketMessage {
+  id: number;
+  is_staff: number;
+  body: string;
+  created_at: number;
+}
+
+export function getTickets(): Promise<SupportTicket[]> {
+  return apiFetch<SupportTicket[]>("/support/tickets");
+}
+
+export function getTicket(id: number): Promise<{ ticket: SupportTicket; messages: SupportTicketMessage[] }> {
+  return apiFetch(`/support/tickets/${id}`);
+}
+
+export function createTicket(subject: string, message: string): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/support/tickets", { method: "POST", body: JSON.stringify({ subject, message }) });
+}
+
+export function replyToTicket(id: number, message: string): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/support/tickets/${id}/reply`, { method: "POST", body: JSON.stringify({ message }) });
+}
+
 export function updateTickerInterval(personId: string, minutes: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>("/settings/ticker-interval", {
     method: "POST",

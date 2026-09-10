@@ -197,8 +197,10 @@ button.danger {
   color: var(--bg);
 }
 
-h1, h2 {
+h1, h2, h3 {
   margin-top: 0;
+  font-family: var(--font-display), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: -0.01em;
 }
 
 section + section {
@@ -219,6 +221,32 @@ section + section {
   margin: 0 auto;
   padding: 1.25rem 1.5rem;
   height: 72px;
+  gap: 1.5rem;
+}
+
+.marketing-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.75rem;
+  margin-right: auto;
+  margin-left: 2.5rem;
+}
+
+.marketing-nav-links a {
+  text-decoration: none;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  transition: color 0.15s ease;
+}
+
+.marketing-nav-links a:hover {
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .marketing-nav-links {
+    display: none;
+  }
 }
 
 .marketing-nav .brand {
@@ -258,11 +286,23 @@ section + section {
   min-height: 60dvh;
 }
 
-.hero-copy h1 {
-  font-size: clamp(2.2rem, 4vw, 3.2rem);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
   margin: 0 0 1rem;
+}
+
+.hero-copy h1 {
+  font-size: clamp(2.4rem, 4.2vw, 3.4rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.1rem;
 }
 
 .hero-copy p {
@@ -271,6 +311,34 @@ section + section {
   line-height: 1.6;
   max-width: 46ch;
   margin: 0 0 1.75rem;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hero-actions .meta {
+  margin: 0;
+}
+
+.trust-strip {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2.5rem;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.trust-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .hero-visual {
@@ -443,4 +511,102 @@ section + section {
   .bento-cell.tall {
     grid-row: auto;
   }
+}
+
+/* Auth pages (login) */
+
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.auth-brand-panel {
+  background:
+    radial-gradient(circle at 20% 15%, rgba(94, 200, 248, 0.16), transparent 45%),
+    radial-gradient(circle at 80% 85%, rgba(47, 185, 106, 0.12), transparent 45%),
+    var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.auth-brand-panel blockquote {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: var(--text);
+  max-width: 34ch;
+}
+
+.auth-brand-panel .meta {
+  margin-top: 1rem;
+}
+
+.auth-form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+}
+
+.auth-form-panel form {
+  width: 100%;
+  max-width: 360px;
+}
+
+.auth-form-panel h1 {
+  font-size: 1.7rem;
+  margin-bottom: 0.35rem;
+}
+
+.auth-form-panel > div > p.meta {
+  margin-bottom: 1.75rem;
+}
+
+@media (max-width: 860px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+  }
+  .auth-brand-panel {
+    display: none;
+  }
+}
+
+/* Legal / content pages */
+
+.content-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+}
+
+.content-page h1 {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.content-page .meta {
+  margin-bottom: 2.5rem;
+}
+
+.content-page h2 {
+  font-size: 1.2rem;
+  margin: 2.25rem 0 0.75rem;
+}
+
+.content-page p, .content-page li {
+  color: var(--text-dim);
+  line-height: 1.7;
+  font-size: 0.98rem;
+}
+
+.content-page ul {
+  padding-left: 1.2rem;
+}
+
+.content-page a {
+  color: var(--accent, var(--status-green));
 }

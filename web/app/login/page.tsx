@@ -2,6 +2,7 @@
 
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Logo } from "../lib/Logo";
 
 function LoginForm() {
   const router = useRouter();
@@ -35,35 +36,55 @@ function LoginForm() {
   }
 
   return (
-    <section style={{ maxWidth: 380, margin: "4rem auto", padding: "0 1.5rem" }}>
-      <h1>Log in</h1>
-      <form onSubmit={onSubmit}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="username"
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button type="submit" disabled={loading}>
-          {loading ? "Logging in..." : "Log in"}
-        </button>
-        {error && <p className="meta">{error}</p>}
-      </form>
-    </section>
+    <div className="auth-page">
+      <div className="auth-brand-panel">
+        <a href="/" style={{ display: "inline-flex" }}>
+          <Logo size={26} />
+        </a>
+        <div>
+          <blockquote>
+            &ldquo;Nothing gets missed. That&apos;s all we set out to build.&rdquo;
+          </blockquote>
+          <p className="meta">Glucoalarm, glucose alerts that reach you before it&apos;s urgent</p>
+        </div>
+      </div>
+
+      <div className="auth-form-panel">
+        <div>
+          <h1>Log in</h1>
+          <p className="meta">Welcome back. Enter your account details.</p>
+          <form onSubmit={onSubmit}>
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <button type="submit" disabled={loading}>
+              {loading ? "Logging in..." : "Log in"}
+            </button>
+            {error && <p className="meta">{error}</p>}
+          </form>
+          <p className="meta" style={{ marginTop: "1.5rem" }}>
+            New here? <a href="/signup">Start your 7-day free trial</a>
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 

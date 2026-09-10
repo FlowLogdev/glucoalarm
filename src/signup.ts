@@ -38,8 +38,11 @@ export async function postSignupComplete(env: Env, request: Request, now: number
     return jsonResponse({ error: "password must be at least 8 characters" }, 400);
   }
 
+  // With a 7-day trial, Stripe collects $0 at checkout and reports
+  // payment_status "no_payment_required" rather than "paid" -- both mean
+  // the subscription was created successfully.
   const stripeSession = await retrieveCheckoutSession(env, body.session_id);
-  if (!stripeSession || stripeSession.payment_status !== "paid") {
+  if (!stripeSession || !["paid", "no_payment_required"].includes(stripeSession.payment_status)) {
     return jsonResponse({ error: "payment_not_confirmed" }, 402);
   }
 

@@ -22,6 +22,7 @@ export async function createCheckoutSession(
       mode: "subscription",
       "line_items[0][price]": env.STRIPE_PRICE_ID,
       "line_items[0][quantity]": "1",
+      "subscription_data[trial_period_days]": "7",
       success_url: successUrl,
       cancel_url: cancelUrl,
     }),
@@ -34,6 +35,22 @@ export async function createCheckoutSession(
 
   const data = await res.json<{ id: string; url: string }>();
   return { id: data.id, url: data.url };
+}
+
+export async function createPortalSession(env: Env, stripeCustomerId: string, returnUrl: string): Promise<{ url: string }> {
+  const res = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + btoa(`${env.STRIPE_SECRET_KEY}:`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ customer: stripeCustomerId, return_url: returnUrl }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new StripeError(`Stripe portal session creation failed (${res.status}): ${text}`);
+  }
+  return res.json<{ url: string }>();
 }
 
 export interface StripeCheckoutSession {

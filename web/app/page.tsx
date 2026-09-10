@@ -7,6 +7,10 @@ export default function MarketingPage() {
         <a className="brand" href="/" style={{ display: "inline-flex" }}>
           <Logo size={26} />
         </a>
+        <div className="marketing-nav-links">
+          <a href="/signup">Pricing</a>
+          <a href="/contact">Contact</a>
+        </div>
         <a className="btn-primary" href="/signup">
           Sign up
         </a>
@@ -14,14 +18,17 @@ export default function MarketingPage() {
 
       <section className="marketing-hero">
         <div className="hero-copy">
+          <span className="hero-eyebrow">Glucose monitoring, reimagined</span>
           <h1>Glucose alerts that reach you before it&apos;s urgent.</h1>
           <p>
             Connect your own Dexcom Share account and get WhatsApp alerts the moment glucose
             leaves the safe range, plus phone call escalation for lows -- so nothing gets missed.
           </p>
-          <a className="btn-primary" href="/signup">
-            Get started
-          </a>
+          <div className="hero-actions">
+            <a className="btn-primary" href="/signup">
+              Get started
+            </a>
+          </div>
         </div>
 
         <div className="hero-visual">
@@ -47,6 +54,12 @@ export default function MarketingPage() {
           </p>
         </div>
       </section>
+
+      <div className="trust-strip">
+        <span>7-day free trial, no card charged until day 8</span>
+        <span>Cancel anytime from Settings</span>
+        <span>Your Dexcom credentials, encrypted and never shared</span>
+      </div>
 
       <section className="steps">
         <div className="step">
@@ -111,7 +124,12 @@ export default function MarketingPage() {
       <footer className="marketing-footer">
         <div className="marketing-footer-inner">
           <span>Glucoalarm</span>
-          <span>Support: support@flowlog.dev</span>
+          <div style={{ display: "flex", gap: "1.5rem" }}>
+            <a href="/contact">Contact</a>
+            <a href="/signup">Pricing</a>
+            <a href="/terms">Terms</a>
+            <a href="/refund-policy">Refunds</a>
+          </div>
         </div>
       </footer>
     </div>

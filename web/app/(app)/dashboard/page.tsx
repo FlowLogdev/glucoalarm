@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getPeople, getLatestReading, type LatestReadingResponse, type Person } from "../../lib/api";
+import { getPeople, getLatestReading, getTickets, type LatestReadingResponse, type Person, type SupportTicket } from "../../lib/api";
 import { trendArrow, statusColor, statusLabel, minutesAgo } from "../../lib/format";
 import { suggestedDose } from "../../lib/dosing";
 
@@ -155,6 +155,32 @@ function CalculatorCard({ person }: { person: Person }) {
   );
 }
 
+function SupportWidget() {
+  const [tickets, setTickets] = useState<SupportTicket[] | null>(null);
+
+  useEffect(() => {
+    getTickets().then(setTickets).catch(() => setTickets([]));
+  }, []);
+
+  const openCount = tickets?.filter((t) => t.status === "open").length ?? 0;
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Need help?</h3>
+      <p className="meta">
+        {tickets == null
+          ? "Loading..."
+          : openCount > 0
+            ? `You have ${openCount} open support ${openCount === 1 ? "ticket" : "tickets"}.`
+            : "No open support tickets."}
+      </p>
+      <a className="history-link" href="/support">
+        Go to Support →
+      </a>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +221,9 @@ export default function DashboardPage() {
         {people.map((p) => (
           <CalculatorCard key={p.id} person={p} />
         ))}
+      </div>
+      <div style={{ marginTop: "1.5rem" }} className="card-grid">
+        <SupportWidget />
       </div>
     </section>
   );
