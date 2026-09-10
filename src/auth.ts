@@ -7,6 +7,21 @@ export interface Admin {
   id: string;
   email: string;
   is_super_admin: number;
+  customer_id: string | null;
+}
+
+export async function createSession(
+  env: Env,
+  adminId: string,
+  now: number
+): Promise<{ sessionId: string; expiresAt: number }> {
+  const sessionId = crypto.randomUUID();
+  const expiresAt = now + SESSION_TTL_SECONDS;
+  await env.DB
+    .prepare(`INSERT INTO auth_sessions (id, admin_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+    .bind(sessionId, adminId, now, expiresAt)
+    .run();
+  return { sessionId, expiresAt };
 }
 
 export async function login(
@@ -24,14 +39,7 @@ export async function login(
   const valid = await verifyPassword(password, admin.password_hash);
   if (!valid) return null;
 
-  const sessionId = crypto.randomUUID();
-  const expiresAt = now + SESSION_TTL_SECONDS;
-  await env.DB
-    .prepare(`INSERT INTO auth_sessions (id, admin_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
-    .bind(sessionId, admin.id, now, expiresAt)
-    .run();
-
-  return { sessionId, expiresAt };
+  return createSession(env, admin.id, now);
 }
 
 export async function logout(env: Env, sessionId: string): Promise<void> {
@@ -41,7 +49,7 @@ export async function logout(env: Env, sessionId: string): Promise<void> {
 export async function getSessionAdmin(env: Env, sessionId: string, now: number): Promise<Admin | null> {
   const row = await env.DB
     .prepare(
-      `SELECT admins.id as id, admins.email as email, admins.is_super_admin as is_super_admin, auth_sessions.expires_at as expires_at
+      `SELECT admins.id as id, admins.email as email, admins.is_super_admin as is_super_admin, admins.customer_id as customer_id, auth_sessions.expires_at as expires_at
        FROM auth_sessions JOIN admins ON admins.id = auth_sessions.admin_id
        WHERE auth_sessions.id = ?`
     )
@@ -49,7 +57,7 @@ export async function getSessionAdmin(env: Env, sessionId: string, now: number):
     .first<Admin & { expires_at: number }>();
 
   if (!row || row.expires_at < now) return null;
-  return { id: row.id, email: row.email, is_super_admin: row.is_super_admin };
+  return { id: row.id, email: row.email, is_super_admin: row.is_super_admin, customer_id: row.customer_id };
 }
 
 export function bearerToken(request: Request): string | null {

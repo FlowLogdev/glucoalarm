@@ -7,6 +7,7 @@ import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
 import { handleCallAck } from "./calls-webhook";
+import { handleStripeWebhook } from "./stripe-webhook";
 import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
@@ -20,6 +21,8 @@ interface PersonRow extends Person {
   low_call_acknowledged: number;
   low_call_critical_escalated: number;
   last_glucose_ticker_at: number | null;
+  ticker_interval_minutes: number;
+  customer_id: string;
 }
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
@@ -28,11 +31,6 @@ const SESSION_TTL_SECONDS = 23 * 60 * 60;
 // Calls repeat every 5 min while low and unacknowledged (a person pressing
 // 1 on the call stops further repeats until the tier returns to safe).
 const LOW_CALL_REPEAT_SECONDS = 5 * 60;
-
-// Safe-range WhatsApp ticker cadence -- deliberately slower than the 5-min
-// poll interval to control cost (every-poll was the first cut, this is a
-// scaled-back version of the same feature).
-const GLUCOSE_TICKER_SECONDS = 20 * 60;
 
 async function cacheSession(
   person: PersonRow,
@@ -198,8 +196,9 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     // the cooldown below -- only the safe tier needs an explicit ticker so
     // recipients see a live number instead of silence between tier changes.
     if (tier === "safe") {
+      const tickerIntervalSeconds = person.ticker_interval_minutes * 60;
       const dueForTicker =
-        !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= GLUCOSE_TICKER_SECONDS;
+        !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= tickerIntervalSeconds;
       if (dueForTicker) {
         const variables = tickerVariables(person.name, value, trend, time);
         let sentAnyone = false;
@@ -282,7 +281,14 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
 
 async function pollAll(env: Env): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  const people = await env.DB.prepare(`SELECT * FROM people`).all<PersonRow>();
+  // Only poll/message/call for customers whose subscription is active --
+  // a canceled or past-due subscription stops costing Twilio money without
+  // deleting the customer's data (they keep it if they resubscribe).
+  const people = await env.DB
+    .prepare(
+      `SELECT people.* FROM people JOIN customers ON customers.id = people.customer_id WHERE customers.subscription_status = 'active'`
+    )
+    .all<PersonRow>();
   for (const person of people.results) {
     try {
       await pollPerson(person, env, now);
@@ -307,6 +313,12 @@ export default {
     // unauthenticated /api/* request.
     if (request.method === "POST" && url0.pathname === "/api/calls/ack") {
       return handleCallAck(request, env);
+    }
+
+    // Stripe webhook -- same reasoning: public, verified by Stripe's own
+    // request signature instead of our bearer token.
+    if (request.method === "POST" && url0.pathname === "/api/stripe/webhook") {
+      return handleStripeWebhook(request, env);
     }
 
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));

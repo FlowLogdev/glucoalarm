@@ -1,8 +1,40 @@
 import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
-import { bearerToken, getSessionAdmin, login, logout } from "./auth";
+import { bearerToken, getSessionAdmin, login, logout, type Admin } from "./auth";
 import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { generateInsight, getCachedInsight } from "./insights";
+import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import type { Env } from "./types";
+
+const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
+const MAX_SUBSCRIBERS_FOR_NEW_CUSTOMERS = 2;
+const FELIPE_INTERNAL_CUSTOMER_ID = "felipe-internal";
+
+/** Super-admins (support@flowlog.dev, andreapastori2012@gmail.com) see everything; everyone else is scoped to their own customer_id. */
+async function assertOwnsPerson(env: Env, admin: Admin, personId: string): Promise<boolean> {
+  if (admin.is_super_admin) return true;
+  const person = await env.DB.prepare(`SELECT customer_id FROM people WHERE id = ?`).bind(personId).first<{ customer_id: string | null }>();
+  return !!person && person.customer_id === admin.customer_id;
+}
+
+/** Same ownership check, but by phone_subscribers row id (looks up the owning person first). */
+async function assertOwnsSubscriber(env: Env, admin: Admin, subscriberId: string): Promise<boolean> {
+  if (admin.is_super_admin) return true;
+  const row = await env.DB
+    .prepare(`SELECT people.customer_id as customer_id FROM phone_subscribers JOIN people ON people.id = phone_subscribers.person_id WHERE phone_subscribers.id = ?`)
+    .bind(subscriberId)
+    .first<{ customer_id: string | null }>();
+  return !!row && row.customer_id === admin.customer_id;
+}
+
+/** Same ownership check, but by insulin_log row id. */
+async function assertOwnsInsulinLogEntry(env: Env, admin: Admin, entryId: string): Promise<boolean> {
+  if (admin.is_super_admin) return true;
+  const row = await env.DB
+    .prepare(`SELECT people.customer_id as customer_id FROM insulin_log JOIN people ON people.id = insulin_log.person_id WHERE insulin_log.id = ?`)
+    .bind(entryId)
+    .first<{ customer_id: string | null }>();
+  return !!row && row.customer_id === admin.customer_id;
+}
 
 type Status = Tier | "stale" | "no_data";
 
@@ -56,8 +88,10 @@ async function postLogout(env: Env, request: Request): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
-async function getPeople(env: Env): Promise<Response> {
-  const people = await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<PersonWithDosing>();
+async function getPeople(env: Env, admin: Admin): Promise<Response> {
+  const people = admin.is_super_admin
+    ? await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<PersonWithDosing>()
+    : await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE customer_id = ?`).bind(admin.customer_id).all<PersonWithDosing>();
   return jsonResponse(people.results);
 }
 
@@ -111,7 +145,7 @@ async function getSubscribers(env: Env, personId: string): Promise<Response> {
   return jsonResponse(subs.results);
 }
 
-async function postThresholds(env: Env, request: Request): Promise<Response> {
+async function postThresholds(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
     safe_low?: number;
@@ -134,6 +168,7 @@ async function postThresholds(env: Env, request: Request): Promise<Response> {
       400
     );
   }
+  if (!(await assertOwnsPerson(env, admin, person_id))) return jsonResponse({ error: "person_not_found" }, 404);
   if (critical_low >= safe_low || safe_low >= safe_high || safe_high >= critical_high) {
     return jsonResponse(
       { error: "thresholds must satisfy critical_low < safe_low < safe_high < critical_high" },
@@ -150,7 +185,7 @@ async function postThresholds(env: Env, request: Request): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
-async function postDosingSettings(env: Env, request: Request): Promise<Response> {
+async function postDosingSettings(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
     carb_ratio?: number | null;
@@ -160,6 +195,7 @@ async function postDosingSettings(env: Env, request: Request): Promise<Response>
   if (!body.person_id) {
     return jsonResponse({ error: "person_id is required" }, 400);
   }
+  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
   const carbRatio = body.carb_ratio ?? null;
   const correctionFactor = body.correction_factor ?? null;
   const targetGlucose = body.target_glucose ?? null;
@@ -178,9 +214,10 @@ async function postDosingSettings(env: Env, request: Request): Promise<Response>
   return jsonResponse({ ok: true });
 }
 
-async function postTimezone(env: Env, request: Request): Promise<Response> {
+async function postTimezone(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{ person_id?: string; timezone?: string | null }>();
   if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
 
   const timezone = body.timezone || null;
   if (timezone) {
@@ -199,15 +236,34 @@ async function postTimezone(env: Env, request: Request): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
+async function postTickerInterval(env: Env, request: Request, admin: Admin): Promise<Response> {
+  const body = await request.json<{ person_id?: string; ticker_interval_minutes?: number }>();
+  if (!body.person_id || body.ticker_interval_minutes == null) {
+    return jsonResponse({ error: "person_id and ticker_interval_minutes are required" }, 400);
+  }
+  if (!TICKER_INTERVAL_OPTIONS.has(body.ticker_interval_minutes)) {
+    return jsonResponse({ error: "ticker_interval_minutes must be one of 5, 10, 15, 20, 30, 60" }, 400);
+  }
+  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
+
+  const result = await env.DB
+    .prepare(`UPDATE people SET ticker_interval_minutes = ? WHERE id = ?`)
+    .bind(body.ticker_interval_minutes, body.person_id)
+    .run();
+  if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
+  return jsonResponse({ ok: true });
+}
+
 async function getInsightRoute(env: Env, personId: string, periodParam: string | null): Promise<Response> {
   const periodKey = (periodParam && periodParam in REPORT_PERIODS ? periodParam : "week") as ReportPeriod;
   const insight = await getCachedInsight(env, personId, periodKey);
   return jsonResponse(insight);
 }
 
-async function postGenerateInsight(env: Env, request: Request, now: number): Promise<Response> {
+async function postGenerateInsight(env: Env, request: Request, admin: Admin, now: number): Promise<Response> {
   const body = await request.json<{ person_id?: string; period?: string }>();
   if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
   const periodKey = (body.period && body.period in REPORT_PERIODS ? body.period : "week") as ReportPeriod;
 
   const person = await env.DB
@@ -245,7 +301,7 @@ async function getInsulinLog(env: Env, personId: string, hours: number): Promise
   return jsonResponse(entries.results);
 }
 
-async function postInsulinLog(env: Env, request: Request, now: number): Promise<Response> {
+async function postInsulinLog(env: Env, request: Request, admin: Admin, now: number): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
     logged_at?: number;
@@ -262,8 +318,7 @@ async function postInsulinLog(env: Env, request: Request, now: number): Promise<
   if ((body.carbs_grams != null && body.carbs_grams < 0) || (body.dose_units != null && body.dose_units < 0)) {
     return jsonResponse({ error: "carbs_grams and dose_units must not be negative" }, 400);
   }
-  const person = await env.DB.prepare(`SELECT id FROM people WHERE id = ?`).bind(body.person_id).first();
-  if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
 
   const result = await env.DB
     .prepare(
@@ -292,7 +347,7 @@ async function deleteInsulinLog(env: Env, id: string): Promise<Response> {
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 
-async function postSubscriber(env: Env, request: Request): Promise<Response> {
+async function postSubscriber(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
     phone_number?: string;
@@ -306,8 +361,24 @@ async function postSubscriber(env: Env, request: Request): Promise<Response> {
   if (!E164.test(body.phone_number)) {
     return jsonResponse({ error: "phone_number must be E.164 format, e.g. +13055551234" }, 400);
   }
-  const person = await env.DB.prepare(`SELECT id FROM people WHERE id = ?`).bind(body.person_id).first();
+  const person = await env.DB
+    .prepare(`SELECT id, customer_id FROM people WHERE id = ?`)
+    .bind(body.person_id)
+    .first<{ id: string; customer_id: string | null }>();
   if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+  if (!admin.is_super_admin && person.customer_id !== admin.customer_id) {
+    return jsonResponse({ error: "person_not_found" }, 404);
+  }
+
+  if (person.customer_id !== FELIPE_INTERNAL_CUSTOMER_ID) {
+    const count = await env.DB
+      .prepare(`SELECT COUNT(*) as n FROM phone_subscribers WHERE person_id = ?`)
+      .bind(body.person_id)
+      .first<{ n: number }>();
+    if ((count?.n ?? 0) >= MAX_SUBSCRIBERS_FOR_NEW_CUSTOMERS) {
+      return jsonResponse({ error: `a maximum of ${MAX_SUBSCRIBERS_FOR_NEW_CUSTOMERS} alert phone numbers is allowed` }, 400);
+    }
+  }
 
   const result = await env.DB
     .prepare(
@@ -350,7 +421,7 @@ async function deleteSubscriber(env: Env, id: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
-const PUBLIC_ROUTES = new Set(["POST /api/auth/login"]);
+const PUBLIC_ROUTES = new Set(["POST /api/auth/login", "POST /api/signup/checkout", "POST /api/signup/complete"]);
 
 export async function handleApi(request: Request, env: Env, now: number): Promise<Response | null> {
   const url = new URL(request.url);
@@ -363,15 +434,16 @@ export async function handleApi(request: Request, env: Env, now: number): Promis
   let response: Response;
   try {
     const routeKey = `${request.method} ${url.pathname}`;
+    let admin: Admin | null = null;
     if (!PUBLIC_ROUTES.has(routeKey) && url.pathname !== "/api/auth/logout") {
       const token = bearerToken(request);
-      const admin = token ? await getSessionAdmin(env, token, now) : null;
+      admin = token ? await getSessionAdmin(env, token, now) : null;
       if (!admin) {
         response = jsonResponse({ error: "unauthorized" }, 401);
         return corsHeaders(response);
       }
     }
-    response = await route(request, url, env, now);
+    response = await route(request, url, env, now, admin);
   } catch (err) {
     console.error("API error:", err);
     response = jsonResponse({ error: "internal_error" }, 500);
@@ -379,7 +451,7 @@ export async function handleApi(request: Request, env: Env, now: number): Promis
   return corsHeaders(response);
 }
 
-async function route(request: Request, url: URL, env: Env, now: number): Promise<Response> {
+async function route(request: Request, url: URL, env: Env, now: number, admin: Admin | null): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
 
@@ -391,19 +463,36 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
     return postLogout(env, request);
   }
 
+  if (method === "POST" && path === "/api/signup/checkout") {
+    return postSignupCheckout(env);
+  }
+
+  if (method === "POST" && path === "/api/signup/complete") {
+    return postSignupComplete(env, request, now);
+  }
+
+  // Every route below requires a session (enforced in handleApi), so `admin` is non-null here.
+  const a = admin as Admin;
+
   if (method === "GET" && path === "/api/people") {
-    return getPeople(env);
+    return getPeople(env, a);
+  }
+
+  if (method === "POST" && path === "/api/people") {
+    return postPeople(env, request, a, now);
   }
 
   if (method === "GET" && path === "/api/readings/latest") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     return getLatest(env, personId, now);
   }
 
   if (method === "GET" && path === "/api/readings/history") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     const hours = Number(url.searchParams.get("hours") ?? "24");
     return getHistory(env, personId, Number.isFinite(hours) && hours > 0 ? hours : 24);
   }
@@ -411,64 +500,75 @@ async function route(request: Request, url: URL, env: Env, now: number): Promise
   if (method === "GET" && path === "/api/reports") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     return getReportRoute(env, personId, url.searchParams.get("period"), now);
   }
 
   if (method === "GET" && path === "/api/subscribers") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     return getSubscribers(env, personId);
   }
 
   if (method === "POST" && path === "/api/settings/thresholds") {
-    return postThresholds(env, request);
+    return postThresholds(env, request, a);
   }
 
   if (method === "POST" && path === "/api/settings/dosing") {
-    return postDosingSettings(env, request);
+    return postDosingSettings(env, request, a);
   }
 
   if (method === "POST" && path === "/api/settings/timezone") {
-    return postTimezone(env, request);
+    return postTimezone(env, request, a);
+  }
+
+  if (method === "POST" && path === "/api/settings/ticker-interval") {
+    return postTickerInterval(env, request, a);
   }
 
   if (method === "GET" && path === "/api/insights") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     return getInsightRoute(env, personId, url.searchParams.get("period"));
   }
 
   if (method === "POST" && path === "/api/insights/generate") {
-    return postGenerateInsight(env, request, now);
+    return postGenerateInsight(env, request, a, now);
   }
 
   if (method === "POST" && path === "/api/subscribers") {
-    return postSubscriber(env, request);
+    return postSubscriber(env, request, a);
   }
 
   const subscriberDeleteMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "DELETE" && subscriberDeleteMatch) {
+    if (!(await assertOwnsSubscriber(env, a, subscriberDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return deleteSubscriber(env, subscriberDeleteMatch[1]);
   }
 
   const subscriberPatchMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "PATCH" && subscriberPatchMatch) {
+    if (!(await assertOwnsSubscriber(env, a, subscriberPatchMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return patchSubscriber(env, subscriberPatchMatch[1], request);
   }
 
   if (method === "GET" && path === "/api/insulin-log") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     const hours = Number(url.searchParams.get("hours") ?? "720");
     return getInsulinLog(env, personId, Number.isFinite(hours) && hours > 0 ? hours : 720);
   }
 
   if (method === "POST" && path === "/api/insulin-log") {
-    return postInsulinLog(env, request, now);
+    return postInsulinLog(env, request, a, now);
   }
 
   const insulinLogDeleteMatch = /^\/api\/insulin-log\/(\w+)$/.exec(path);
   if (method === "DELETE" && insulinLogDeleteMatch) {
+    if (!(await assertOwnsInsulinLogEntry(env, a, insulinLogDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return deleteInsulinLog(env, insulinLogDeleteMatch[1]);
   }
 

@@ -13,4 +13,8 @@ export interface Env {
   ANTHROPIC_API_KEY: string; // set via `wrangler secret put`
   ANTHROPIC_MODEL: string; // e.g. "claude-haiku-4-5-20251001"
   PUBLIC_WORKER_URL: string; // this Worker's own public URL, for Twilio's <Gather> action callback
+  PUBLIC_WEB_URL: string; // the Next.js app's public URL, for Stripe Checkout success/cancel redirects
+  STRIPE_SECRET_KEY: string; // set via `wrangler secret put`
+  STRIPE_WEBHOOK_SECRET: string; // set via `wrangler secret put`, from the Stripe webhook endpoint's signing secret
+  STRIPE_PRICE_ID: string; // the flat monthly subscription Price ID, e.g. price_...
 }

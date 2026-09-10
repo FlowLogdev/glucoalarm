@@ -29,6 +29,10 @@ PUBLIC_WORKER_URL = "https://watchgluco-worker.sales-ff4.workers.dev"
 # works outside WhatsApp's 24h customer-window restriction on free-form
 # messages). Not a secret -- Content SIDs aren't sensitive.
 WHATSAPP_TEMPLATE_SID = "HXf9e3a1a7c89c99e5f536a4018ed47ba8"
+PUBLIC_WEB_URL = "https://glucoalarm.com"
+# Set after creating the flat monthly subscription Price in the Stripe
+# Dashboard (Product catalog). Not a secret -- Price IDs aren't sensitive.
+STRIPE_PRICE_ID = "price_REPLACE_ME"
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest
@@ -39,3 +43,6 @@ WHATSAPP_TEMPLATE_SID = "HXf9e3a1a7c89c99e5f536a4018ed47ba8"
 #   TWILIO_VOICE_FROM      Voice-capable Twilio number, E.164, for low-glucose phone calls
 #   ANTHROPIC_API_KEY      from console.anthropic.com, powers the Reports page's
 #                          time-of-day pattern insight ("Generate insight" button)
+#   STRIPE_SECRET_KEY      from dashboard.stripe.com > Developers > API keys (sk_live_... or sk_test_...)
+#   STRIPE_WEBHOOK_SECRET  from the webhook endpoint you create for
+#                          https://<this worker>/api/stripe/webhook (whsec_...)
