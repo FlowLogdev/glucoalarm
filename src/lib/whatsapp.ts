@@ -63,3 +63,14 @@ export function messageFor(
       return `📶 ${name}'s Dexcom signal is back: ${value} mg/dL${trendPart} (${time})`;
   }
 }
+
+/**
+ * Periodic update sent every poll while in the safe range, so recipients see
+ * a live number like Dexcom's own app rather than silence until the next
+ * tier change. Out-of-range tiers don't need a separate ticker -- they
+ * already resend via messageFor() every poll through the existing cooldown.
+ */
+export function glucoseUpdateMessage(name: string, value: number, trend: string | null, time: string): string {
+  const trendPart = trend ? `, ${trend}` : "";
+  return `📊 ${name}'s glucose: ${value} mg/dL${trendPart} (${time})`;
+}

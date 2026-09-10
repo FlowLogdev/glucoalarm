@@ -2,7 +2,7 @@ import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, classifyTier, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
-import { sendWhatsApp, messageFor } from "./lib/whatsapp";
+import { sendWhatsApp, messageFor, glucoseUpdateMessage } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
@@ -170,17 +170,6 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     person.low_call_critical_escalated = 0;
   }
 
-  if (!alertType) return;
-
-  const lastSameTypeAlert = await env.DB
-    .prepare(
-      `SELECT sent_at FROM alerts_log WHERE person_id = ? AND type = ? ORDER BY sent_at DESC LIMIT 1`
-    )
-    .bind(person.id, alertType)
-    .first<{ sent_at: number }>();
-
-  if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
-
   const subscribers = await env.DB
     .prepare(
       `SELECT phone_number, call_on_low FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
@@ -197,6 +186,33 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(recordedAt * 1000));
+
+  if (!alertType) {
+    // Out-of-range tiers already resend via messageFor() every poll through
+    // the cooldown below -- only the safe tier needs an explicit ticker so
+    // recipients see a live number instead of silence between tier changes.
+    if (tier === "safe") {
+      const body = glucoseUpdateMessage(person.name, value, trend, time);
+      for (const sub of subscribers.results) {
+        try {
+          await sendWhatsApp(sub.phone_number, body, env);
+        } catch (err) {
+          console.error(`sendWhatsApp (ticker) failed for ${person.id} -> ${sub.phone_number}:`, err);
+        }
+      }
+    }
+    return;
+  }
+
+  const lastSameTypeAlert = await env.DB
+    .prepare(
+      `SELECT sent_at FROM alerts_log WHERE person_id = ? AND type = ? ORDER BY sent_at DESC LIMIT 1`
+    )
+    .bind(person.id, alertType)
+    .first<{ sent_at: number }>();
+
+  if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
+
   const body = messageFor(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {
