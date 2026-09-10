@@ -1,14 +1,17 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Logo } from "../lib/Logo";
 import {
+  checkLoggedIn,
+  createPublicTicket,
   createTicket,
   getTicket,
   getTickets,
   replyToTicket,
   type SupportTicket,
   type SupportTicketMessage,
-} from "../../lib/api";
+} from "../lib/api";
 
 function formatDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString(undefined, {
@@ -17,6 +20,101 @@ function formatDate(unixSeconds: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+const MAX_DESCRIPTION = 5000;
+
+function PublicTicketForm() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [subject, setSubject] = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [ticketNumber, setTicketNumber] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const { ticket_number } = await createPublicTicket({ firstName, lastName, email, phone, subject, description });
+      setTicketNumber(ticket_number);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't submit your ticket. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (ticketNumber) {
+    return (
+      <div className="card" style={{ maxWidth: 520 }}>
+        <h3 style={{ marginTop: 0 }}>Ticket created</h3>
+        <p>Your ticket number is:</p>
+        <p style={{ fontSize: "1.6rem", fontWeight: 700, fontFamily: "monospace", margin: "0.5rem 0 1rem" }}>
+          {ticketNumber}
+        </p>
+        <p className="meta">
+          A confirmation has been sent to {email}. Our support team will reply to that email
+          address.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ maxWidth: 520 }}>
+      <div className="card-grid" style={{ gap: "1rem" }}>
+        <label>
+          First name
+          <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+        </label>
+        <label>
+          Last name
+          <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+        </label>
+      </div>
+      <label>
+        Email
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+      </label>
+      <label>
+        Phone number (optional)
+        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+13055551234" />
+      </label>
+      <label>
+        Subject
+        <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} required />
+      </label>
+      <label>
+        Describe your issue ({description.length}/{MAX_DESCRIPTION})
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value.slice(0, MAX_DESCRIPTION))}
+          rows={6}
+          required
+          maxLength={MAX_DESCRIPTION}
+          style={{
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "0.5rem 0.6rem",
+            color: "var(--text)",
+            fontSize: "0.95rem",
+            fontFamily: "inherit",
+            resize: "vertical",
+          }}
+        />
+      </label>
+      <button type="submit" disabled={loading}>
+        {loading ? "Creating ticket..." : "Create ticket"}
+      </button>
+      {error && <p className="meta">{error}</p>}
+    </form>
+  );
 }
 
 function NewTicketForm({ onCreated }: { onCreated: (id: number) => void }) {
@@ -143,7 +241,7 @@ function TicketThread({ ticketId, onReplied }: { ticketId: number; onReplied: ()
   );
 }
 
-export default function SupportPage() {
+function AuthenticatedSupport() {
   const [tickets, setTickets] = useState<SupportTicket[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +259,6 @@ export default function SupportPage() {
 
   return (
     <>
-      <h1>Support</h1>
       {error && <p className="meta">{error}</p>}
       <div className="card-grid" style={{ gridTemplateColumns: "280px 1fr", alignItems: "start" }}>
         <div className="card">
@@ -204,5 +301,48 @@ export default function SupportPage() {
         </div>
       </div>
     </>
+  );
+}
+
+export default function SupportPage() {
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkLoggedIn().then(setLoggedIn);
+  }, []);
+
+  return (
+    <div className={loggedIn ? undefined : "marketing"}>
+      <nav className="marketing-nav">
+        <a className="brand" href="/" style={{ display: "inline-flex" }}>
+          <Logo size={26} />
+        </a>
+        {loggedIn ? (
+          <a className="btn-primary" href="/dashboard">
+            Dashboard
+          </a>
+        ) : (
+          <a className="btn-primary" href="/login">
+            Log in
+          </a>
+        )}
+      </nav>
+
+      <div className="content-page" style={{ maxWidth: 960 }}>
+        <h1>Support</h1>
+        {loggedIn == null && <p className="meta">Loading...</p>}
+        {loggedIn === false && (
+          <>
+            <p className="meta">
+              Have an issue or a question? Fill out the form below and we&apos;ll follow up by
+              email. Already have an account? <a href="/login">Log in</a> to see your ticket
+              history and reply directly.
+            </p>
+            <PublicTicketForm />
+          </>
+        )}
+        {loggedIn === true && <AuthenticatedSupport />}
+      </div>
+    </div>
   );
 }

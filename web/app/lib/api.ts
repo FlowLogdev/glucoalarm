@@ -244,6 +244,40 @@ export interface SupportTicketMessage {
   created_at: number;
 }
 
+export async function checkLoggedIn(): Promise<boolean> {
+  const res = await fetch("/api/whoami", { cache: "no-store" });
+  if (!res.ok) return false;
+  const data = (await res.json()) as { loggedIn: boolean };
+  return data.loggedIn;
+}
+
+export async function createPublicTicket(fields: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  subject: string;
+  description: string;
+}): Promise<{ ticket_number: string }> {
+  const res = await fetch("/api/support/public-tickets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      first_name: fields.firstName,
+      last_name: fields.lastName,
+      email: fields.email,
+      phone: fields.phone || null,
+      subject: fields.subject,
+      description: fields.description,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Couldn't submit your ticket. Try again.");
+  }
+  return res.json();
+}
+
 export function getTickets(): Promise<SupportTicket[]> {
   return apiFetch<SupportTicket[]>("/support/tickets");
 }

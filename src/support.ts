@@ -1,8 +1,111 @@
+import { sendEmail } from "./lib/resend";
 import type { Env } from "./types";
 import type { Admin } from "./auth";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+}
+
+const MAX_DESCRIPTION_LENGTH = 5000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Ticket numbers look like Gluco-10000-260910 (sequence-YYMMDD of creation).
+ * The sequence restarts at 10000 every calendar year via an atomic
+ * INSERT ... ON CONFLICT DO UPDATE ... RETURNING against a per-year row --
+ * D1/SQLite runs that as one statement, so concurrent submissions can't
+ * collide on the same number.
+ */
+async function generateTicketNumber(env: Env, now: number): Promise<string> {
+  const date = new Date(now * 1000);
+  const year = date.getUTCFullYear();
+  const yy = String(year).slice(-2);
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+
+  const row = await env.DB
+    .prepare(
+      `INSERT INTO ticket_sequence (year, next_number) VALUES (?, 10001)
+       ON CONFLICT(year) DO UPDATE SET next_number = ticket_sequence.next_number + 1
+       RETURNING next_number - 1 AS assigned`
+    )
+    .bind(year)
+    .first<{ assigned: number }>();
+
+  return `Gluco-${row!.assigned}-${yy}${mm}${dd}`;
+}
+
+/**
+ * Public ticket submission -- no account required. Guest tickets use the
+ * sentinel customer_id/admin_id 'guest' rather than a schema change to make
+ * those columns nullable; they're only visible to super-admins (same rule
+ * that already applies to any ticket whose customer_id doesn't match the
+ * viewer). Email delivery is best-effort: a Resend outage or missing API
+ * key must not block ticket creation itself.
+ */
+export async function postPublicTicket(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone?: string;
+    subject?: string;
+    description?: string;
+  }>();
+  const { first_name, last_name, email, subject, description } = body;
+
+  if (!first_name?.trim() || !last_name?.trim() || !email?.trim() || !subject?.trim() || !description?.trim()) {
+    return jsonResponse({ error: "first_name, last_name, email, subject, and description are required" }, 400);
+  }
+  if (!EMAIL_RE.test(email.trim())) {
+    return jsonResponse({ error: "invalid email address" }, 400);
+  }
+  if (description.length > MAX_DESCRIPTION_LENGTH) {
+    return jsonResponse({ error: `description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer` }, 400);
+  }
+
+  const ticketNumber = await generateTicketNumber(env, now);
+  const phone = body.phone?.trim() || null;
+
+  const result = await env.DB
+    .prepare(
+      `INSERT INTO support_tickets (customer_id, admin_id, subject, status, ticket_number, first_name, last_name, email, phone, created_at, updated_at)
+       VALUES ('guest', 'guest', ?, 'open', ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(subject.trim(), ticketNumber, first_name.trim(), last_name.trim(), email.trim(), phone, now, now)
+    .run();
+  const ticketId = result.meta.last_row_id;
+
+  await env.DB
+    .prepare(`INSERT INTO support_ticket_messages (ticket_id, admin_id, is_staff, body, created_at) VALUES (?, NULL, 0, ?, ?)`)
+    .bind(ticketId, description.trim(), now)
+    .run();
+
+  try {
+    const escapedDescription = description.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    await sendEmail(
+      env,
+      email.trim(),
+      `We received your ticket ${ticketNumber}`,
+      `<p>Hi ${first_name.trim()},</p>
+       <p>Thanks for reaching out to Glucoalarm support. Your ticket number is <strong>${ticketNumber}</strong>.</p>
+       <p><strong>Subject:</strong> ${subject.trim()}</p>
+       <p><strong>Your message:</strong><br>${escapedDescription}</p>
+       <p>We'll reply to this email as soon as we can.</p>`
+    );
+    await sendEmail(
+      env,
+      "support@flowlog.dev",
+      `New ticket ${ticketNumber}: ${subject.trim()}`,
+      `<p>New support ticket from ${first_name.trim()} ${last_name.trim()} (${email.trim()}${phone ? `, ${phone}` : ""}).</p>
+       <p><strong>Subject:</strong> ${subject.trim()}</p>
+       <p><strong>Message:</strong><br>${escapedDescription}</p>`
+    );
+  } catch (err) {
+    console.error(`postPublicTicket: email send failed for ${ticketNumber}:`, err);
+  }
+
+  return jsonResponse({ ticket_number: ticketNumber }, 201);
 }
 
 interface TicketRow {

@@ -17,4 +17,5 @@ export interface Env {
   STRIPE_SECRET_KEY: string; // set via `wrangler secret put`
   STRIPE_WEBHOOK_SECRET: string; // set via `wrangler secret put`, from the Stripe webhook endpoint's signing secret
   STRIPE_PRICE_ID: string; // the flat monthly subscription Price ID, e.g. price_...
+  RESEND_API_KEY: string; // set via `wrangler secret put`, from resend.com -- requires the flowlog.dev domain verified as a sender
 }

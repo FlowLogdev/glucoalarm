@@ -46,3 +46,5 @@ STRIPE_PRICE_ID = "price_REPLACE_ME"
 #   STRIPE_SECRET_KEY      from dashboard.stripe.com > Developers > API keys (sk_live_... or sk_test_...)
 #   STRIPE_WEBHOOK_SECRET  from the webhook endpoint you create for
 #                          https://<this worker>/api/stripe/webhook (whsec_...)
+#   RESEND_API_KEY         from resend.com -- the flowlog.dev domain must be
+#                          verified there before support@flowlog.dev can send

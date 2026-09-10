@@ -4,7 +4,7 @@ import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
-import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus } from "./support";
+import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
@@ -424,7 +424,12 @@ async function deleteSubscriber(env: Env, id: string): Promise<Response> {
   return jsonResponse({ ok: true });
 }
 
-const PUBLIC_ROUTES = new Set(["POST /api/auth/login", "POST /api/signup/checkout", "POST /api/signup/complete"]);
+const PUBLIC_ROUTES = new Set([
+  "POST /api/auth/login",
+  "POST /api/signup/checkout",
+  "POST /api/signup/complete",
+  "POST /api/support/public-tickets",
+]);
 
 export async function handleApi(request: Request, env: Env, now: number): Promise<Response | null> {
   const url = new URL(request.url);
@@ -472,6 +477,10 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
 
   if (method === "POST" && path === "/api/signup/complete") {
     return postSignupComplete(env, request, now);
+  }
+
+  if (method === "POST" && path === "/api/support/public-tickets") {
+    return postPublicTicket(env, request, now);
   }
 
   // Every route below requires a session (enforced in handleApi), so `admin` is non-null here.
