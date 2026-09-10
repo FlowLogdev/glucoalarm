@@ -14,7 +14,7 @@ export default function ContactPage() {
 
       <div className="content-page">
         <h1>Contact us</h1>
-        <p className="meta">We usually reply within one business day.</p>
+        <p className="meta">Support will reply within 24 hours.</p>
 
         <h2>Support</h2>
         <p>

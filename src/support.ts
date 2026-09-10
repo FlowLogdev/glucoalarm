@@ -91,7 +91,7 @@ export async function postPublicTicket(env: Env, request: Request, now: number):
        <p>Thanks for reaching out to Glucoalarm support. Your ticket number is <strong>${ticketNumber}</strong>.</p>
        <p><strong>Subject:</strong> ${subject.trim()}</p>
        <p><strong>Your message:</strong><br>${escapedDescription}</p>
-       <p>We'll reply to this email as soon as we can.</p>`
+       <p>Our support team will reply to this email within 24 hours.</p>`
     );
     await sendEmail(
       env,

@@ -59,7 +59,7 @@ function PublicTicketForm() {
         </p>
         <p className="meta">
           A confirmation has been sent to {email}. Our support team will reply to that email
-          address.
+          address within 24 hours.
         </p>
       </div>
     );
