@@ -8,10 +8,51 @@ import {
   removeSubscriber,
   updateDosingSettings,
   updateThresholds,
+  updateTickerInterval,
   updateTimezone,
   type Person,
   type Subscriber,
 } from "../../lib/api";
+
+const TICKER_OPTIONS = [5, 10, 15, 20, 30, 60];
+
+function TickerIntervalForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+  const [minutes, setMinutes] = useState(person.ticker_interval_minutes ?? 20);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setStatus(null);
+    try {
+      await updateTickerInterval(person.id, minutes);
+      setStatus("Saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <p className="meta">
+        How often to send a WhatsApp check-in while {person.name}&apos;s glucose is in the safe
+        range. Out-of-range alerts are unaffected by this setting.
+      </p>
+      <label>
+        Check-in every
+        <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+          {TICKER_OPTIONS.map((m) => (
+            <option key={m} value={m}>
+              {m} minutes
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="submit">Save</button>
+      {status && <p className="meta">{status}</p>}
+    </form>
+  );
+}
 
 function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
   const [safeLow, setSafeLow] = useState(person.safe_low);
@@ -304,6 +345,10 @@ export default function SettingsPage() {
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Timezone</h3>
               <TimezoneForm person={person} onSaved={refresh} />
+            </div>
+            <div className="card">
+              <h3 style={{ marginTop: 0 }}>Safe-range check-ins</h3>
+              <TickerIntervalForm person={person} onSaved={refresh} />
             </div>
           </div>
         </section>

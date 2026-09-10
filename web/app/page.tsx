@@ -7,8 +7,8 @@ export default function MarketingPage() {
         <a className="brand" href="/" style={{ display: "inline-flex" }}>
           <Logo size={26} />
         </a>
-        <a className="btn-primary" href="/login">
-          Log in
+        <a className="btn-primary" href="/signup">
+          Sign up
         </a>
       </nav>
 
@@ -16,11 +16,11 @@ export default function MarketingPage() {
         <div className="hero-copy">
           <h1>Glucose alerts that reach you before it&apos;s urgent.</h1>
           <p>
-            Live Dexcom readings for two people, sent to WhatsApp the moment glucose leaves the
-            safe range so nothing gets missed.
+            Connect your own Dexcom Share account and get WhatsApp alerts the moment glucose
+            leaves the safe range, plus phone call escalation for lows -- so nothing gets missed.
           </p>
-          <a className="btn-primary" href="/login">
-            Log in
+          <a className="btn-primary" href="/signup">
+            Get started
           </a>
         </div>
 
@@ -89,8 +89,8 @@ export default function MarketingPage() {
           </div>
         </div>
         <div className="bento-cell plain">
-          <h3>Two people, one dashboard</h3>
-          <p>Track readings for both people side by side, each with its own thresholds.</p>
+          <h3>Set up in minutes</h3>
+          <p>Connect your own Dexcom Share login, add up to two alert contacts, and set your ranges -- no phone calls to a support line required.</p>
         </div>
         <div className="bento-cell plain">
           <h3>Weekly and monthly reports</h3>

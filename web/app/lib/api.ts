@@ -10,6 +10,7 @@ export interface Person {
   correction_factor: number | null;
   target_glucose: number | null;
   timezone: string | null;
+  ticker_interval_minutes?: number;
 }
 
 export interface Insight {
@@ -211,4 +212,48 @@ export function generateInsight(personId: string, period: ReportPeriod): Promise
     method: "POST",
     body: JSON.stringify({ person_id: personId, period }),
   });
+}
+
+export function updateTickerInterval(personId: string, minutes: number): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>("/settings/ticker-interval", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, ticker_interval_minutes: minutes }),
+  });
+}
+
+export function connectDexcom(name: string, dexcomUsername: string, dexcomPassword: string): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/people", {
+    method: "POST",
+    body: JSON.stringify({ name, dexcom_username: dexcomUsername, dexcom_password: dexcomPassword }),
+  });
+}
+
+/** Signup/onboarding calls go straight to their own Next.js routes (not the
+ *  authenticated proxy) -- no session exists yet at this point in the flow. */
+export async function startSignupCheckout(): Promise<{ url: string }> {
+  const res = await fetch("/api/signup/checkout", { method: "POST" });
+  if (!res.ok) throw new Error("Couldn't start checkout. Try again.");
+  return res.json();
+}
+
+export async function completeSignup(
+  sessionId: string,
+  displayName: string,
+  email: string,
+  password: string
+): Promise<void> {
+  const res = await fetch("/api/signup/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, display_name: displayName, email, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const messages: Record<string, string> = {
+      payment_not_confirmed: "We couldn't confirm your payment yet. Try refreshing in a moment.",
+      email_already_registered: "That email is already registered -- log in instead.",
+      session_already_used: "This checkout session was already used to create an account.",
+    };
+    throw new Error(messages[body.error as string] ?? "Couldn't complete signup. Try again.");
+  }
 }

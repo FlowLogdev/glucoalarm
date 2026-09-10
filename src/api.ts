@@ -63,13 +63,14 @@ function computeStatus(
   return classifyTier(person, reading.value_mgdl);
 }
 
-const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose, timezone`;
+const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose, timezone, ticker_interval_minutes`;
 
 interface PersonWithDosing extends Person {
   carb_ratio: number | null;
   correction_factor: number | null;
   target_glucose: number | null;
   timezone: string | null;
+  ticker_interval_minutes: number;
 }
 
 async function postLogin(env: Env, request: Request, now: number): Promise<Response> {
