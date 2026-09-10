@@ -9,6 +9,7 @@ export default function MarketingPage() {
         </a>
         <div className="marketing-nav-links">
           <a href="/signup">Pricing</a>
+          <a href="/support">Support</a>
           <a href="/contact">Contact</a>
         </div>
         <a className="btn-primary" href="/signup">
@@ -125,8 +126,9 @@ export default function MarketingPage() {
         <div className="marketing-footer-inner">
           <span>Glucoalarm</span>
           <div style={{ display: "flex", gap: "1.5rem" }}>
-            <a href="/contact">Contact</a>
             <a href="/signup">Pricing</a>
+            <a href="/support">Support</a>
+            <a href="/contact">Contact</a>
             <a href="/terms">Terms</a>
             <a href="/refund-policy">Refunds</a>
           </div>
