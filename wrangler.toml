@@ -25,6 +25,10 @@ DEXCOM_APPLICATION_ID = "d89443d2-327c-4a6f-89e5-496bbb0317db"
 MESSAGE_MODE = "whatsapp"
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 PUBLIC_WORKER_URL = "https://watchgluco-worker.sales-ff4.workers.dev"
+# Approved "glucose_alert_v2" Content Template (business-initiated, so it
+# works outside WhatsApp's 24h customer-window restriction on free-form
+# messages). Not a secret -- Content SIDs aren't sensitive.
+WHATSAPP_TEMPLATE_SID = "HXf9e3a1a7c89c99e5f536a4018ed47ba8"
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest

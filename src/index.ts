@@ -2,7 +2,7 @@ import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, classifyTier, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
-import { sendWhatsApp, messageFor, glucoseUpdateMessage } from "./lib/whatsapp";
+import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
 import { handleApi } from "./api";
@@ -201,18 +201,25 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
       const dueForTicker =
         !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= GLUCOSE_TICKER_SECONDS;
       if (dueForTicker) {
-        const body = glucoseUpdateMessage(person.name, value, trend, time);
+        const variables = tickerVariables(person.name, value, trend, time);
+        let sentAnyone = false;
         for (const sub of subscribers.results) {
           try {
-            await sendWhatsApp(sub.phone_number, body, env);
+            await sendWhatsApp(sub.phone_number, variables, env);
+            sentAnyone = true;
           } catch (err) {
             console.error(`sendWhatsApp (ticker) failed for ${person.id} -> ${sub.phone_number}:`, err);
           }
         }
-        await env.DB
-          .prepare(`UPDATE people SET last_glucose_ticker_at = ? WHERE id = ?`)
-          .bind(now, person.id)
-          .run();
+        // Only advance the cooldown on at least one real success -- a total
+        // failure (e.g. Twilio outage) should retry next poll (5 min), not
+        // silently wait out the full 20-min window with nothing delivered.
+        if (sentAnyone) {
+          await env.DB
+            .prepare(`UPDATE people SET last_glucose_ticker_at = ? WHERE id = ?`)
+            .bind(now, person.id)
+            .run();
+        }
       }
     }
     return;
@@ -227,11 +234,11 @@ async function pollPerson(person: PersonRow, env: Env, now: number): Promise<voi
 
   if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
 
-  const body = messageFor(alertType, person.name, value, trend, person.stale_minutes, time);
+  const variables = alertVariables(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {
     try {
-      await sendWhatsApp(sub.phone_number, body, env);
+      await sendWhatsApp(sub.phone_number, variables, env);
     } catch (err) {
       // Don't let one bad number block the rest, or skip alerts_log below
       // and cause a resend storm next cron run.
