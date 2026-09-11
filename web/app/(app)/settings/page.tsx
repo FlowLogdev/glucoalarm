@@ -5,8 +5,10 @@ import { getAllTimezones, timezoneOffsetLabel } from "../../lib/timezones";
 import {
   addSubscriber,
   getPeople,
+  getServiceStatus,
   getSubscribers,
   removeSubscriber,
+  restartService,
   sendSetupAssistantMessage,
   updateDosingSettings,
   updateThresholds,
@@ -14,6 +16,7 @@ import {
   updateTimezone,
   type AssistantMessage,
   type Person,
+  type ServiceStatus,
   type Subscriber,
 } from "../../lib/api";
 
@@ -250,6 +253,72 @@ function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void
   );
 }
 
+const STATUS_META: Record<ServiceStatus["status"], { color: string; label: string }> = {
+  connected: { color: "var(--status-green)", label: "Connected and active" },
+  connecting: { color: "var(--status-orange)", label: "Trying to connect" },
+  down: { color: "var(--status-red)", label: "Service down" },
+};
+
+function ServiceStatusCard({ person }: { person: Person }) {
+  const [status, setStatus] = useState<ServiceStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
+  function refresh() {
+    getServiceStatus(person.id)
+      .then(setStatus)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 30_000);
+    return () => clearInterval(interval);
+  }, [person.id]);
+
+  async function onRestart() {
+    setError(null);
+    setRestarting(true);
+    try {
+      const updated = await restartService(person.id);
+      setStatus(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't restart the connection");
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  const meta = status ? STATUS_META[status.status] : null;
+
+  return (
+    <div className="card" style={{ marginBottom: "1.5rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              background: meta?.color ?? "var(--status-gray)",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <strong>{person.name}&apos;s connection: {meta?.label ?? "Checking..."}</strong>
+            {status && <div className="meta">{status.detail}</div>}
+          </div>
+        </div>
+        <button type="button" onClick={onRestart} disabled={restarting}>
+          {restarting ? "Restarting..." : "Restart service"}
+        </button>
+      </div>
+      {error && <p className="meta">{error}</p>}
+    </div>
+  );
+}
+
 function SubscriberManager({ personId }: { personId: string }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -432,6 +501,7 @@ export default function SettingsPage() {
         {people.map((person) => (
           <section key={person.id}>
             <h2>{person.name}</h2>
+            <ServiceStatusCard person={person} />
             <div className="card-grid">
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Thresholds</h3>

@@ -306,6 +306,21 @@ export function replyToTicket(id: number, message: string): Promise<{ ok: true }
   return apiFetch<{ ok: true }>(`/support/tickets/${id}/reply`, { method: "POST", body: JSON.stringify({ message }) });
 }
 
+export interface ServiceStatus {
+  status: "connected" | "connecting" | "down";
+  detail: string;
+  lastReadingAt: number | null;
+  subscriptionStatus: string;
+}
+
+export function getServiceStatus(personId: string): Promise<ServiceStatus> {
+  return apiFetch<ServiceStatus>(`/status?person_id=${encodeURIComponent(personId)}`);
+}
+
+export function restartService(personId: string): Promise<ServiceStatus> {
+  return apiFetch<ServiceStatus>("/restart-service", { method: "POST", body: JSON.stringify({ person_id: personId }) });
+}
+
 export interface AssistantMessage {
   role: "user" | "assistant";
   content: string;
