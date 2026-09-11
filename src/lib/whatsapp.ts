@@ -92,6 +92,23 @@ export function alertVariables(
  * already resend via alertVariables() every poll through the existing
  * cooldown.
  */
+/**
+ * Reuses the same approved glucose_alert_v2 template (business-initiated,
+ * no 24h window restriction) for a billing/account-status notice, since
+ * there's no separate approved template for this yet -- {{3}}/{{4}} read
+ * "N/A" rather than a glucose value. Worth submitting a dedicated template
+ * for this later if the phrasing needs to be cleaner.
+ */
+export function billingAlertVariables(name: string, label: string, time: string): Record<string, string> {
+  return {
+    "1": label,
+    "2": name,
+    "3": "N/A",
+    "4": "N/A",
+    "5": time,
+  };
+}
+
 export function tickerVariables(name: string, value: number, trend: string | null, time: string): Record<string, string> {
   return {
     "1": "📊 In-range update",

@@ -23,7 +23,7 @@ export default {
     // Stripe webhook -- same reasoning: public, verified by Stripe's own
     // request signature instead of our bearer token.
     if (request.method === "POST" && url0.pathname === "/api/stripe/webhook") {
-      return handleStripeWebhook(request, env);
+      return handleStripeWebhook(request, env, Math.floor(Date.now() / 1000));
     }
 
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
