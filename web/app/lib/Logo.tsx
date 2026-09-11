@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { checkLoggedIn } from "./api";
+
 const GRADIENT_ID = "glucoalarm-droplet-gradient";
 
 export function LogoMark({ size = 32 }: { size?: number }) {
@@ -57,5 +62,51 @@ export function Logo({ withTagline = false, size = 28 }: { withTagline?: boolean
         )}
       </span>
     </span>
+  );
+}
+
+/**
+ * Wraps Logo in the right link for wherever it's rendered: a logged-in
+ * visitor always goes to /dashboard (even from the marketing pages), a
+ * logged-out visitor goes to "/" -- except on the marketing home page
+ * itself, where clicking the logo scrolls to top instead of reloading.
+ */
+export function LogoLink({ size = 26, isHomePage = false }: { size?: number; isHomePage?: boolean }) {
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkLoggedIn()
+      .then(setLoggedIn)
+      .catch(() => setLoggedIn(false));
+  }, []);
+
+  if (loggedIn) {
+    return (
+      <a className="brand" href="/dashboard" style={{ display: "inline-flex" }}>
+        <Logo size={size} />
+      </a>
+    );
+  }
+
+  if (isHomePage) {
+    return (
+      <a
+        className="brand"
+        href="#top"
+        style={{ display: "inline-flex" }}
+        onClick={(e) => {
+          e.preventDefault();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      >
+        <Logo size={size} />
+      </a>
+    );
+  }
+
+  return (
+    <a className="brand" href="/" style={{ display: "inline-flex" }}>
+      <Logo size={size} />
+    </a>
   );
 }

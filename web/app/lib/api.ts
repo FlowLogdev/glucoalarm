@@ -11,6 +11,9 @@ export interface Person {
   target_glucose: number | null;
   timezone: string | null;
   ticker_interval_minutes?: number;
+  report_email_address?: string | null;
+  report_email_weekly?: number;
+  report_email_monthly?: number;
 }
 
 export interface Insight {
@@ -291,6 +294,34 @@ export interface GlucoseReport {
 
 export async function getGlucoseReport(personId: string, type: "weekly" | "monthly"): Promise<GlucoseReport | null> {
   return apiFetch<GlucoseReport | null>(`/glucose-reports?person_id=${encodeURIComponent(personId)}&type=${type}`);
+}
+
+export async function getCustomGlucoseReports(personId: string): Promise<GlucoseReport[]> {
+  return apiFetch<GlucoseReport[]>(`/glucose-reports?person_id=${encodeURIComponent(personId)}&type=custom&limit=24`);
+}
+
+export async function generateCustomGlucoseReport(personId: string, periodStart: number, periodEnd: number): Promise<GlucoseReport> {
+  await apiFetch<{ created: boolean }>("/reports/custom", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, period_start: periodStart, period_end: periodEnd }),
+  });
+  const reports = await getCustomGlucoseReports(personId);
+  const match = reports.find((r) => r.period_start === periodStart && r.period_end === periodEnd);
+  if (!match) throw new Error("Report was created but could not be loaded");
+  return match;
+}
+
+export interface ReportEmailSettings {
+  report_email_address: string | null;
+  report_email_weekly: number;
+  report_email_monthly: number;
+}
+
+export function updateReportEmailSettings(personId: string, email: string, weekly: boolean, monthly: boolean): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>("/settings/report-email", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, email, weekly, monthly }),
+  });
 }
 
 export function getReport(personId: string, period: ReportPeriod): Promise<Report> {

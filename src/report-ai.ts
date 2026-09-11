@@ -73,7 +73,7 @@ Strict rules, no exceptions:
 
 export interface ReportAIInput {
   personFirstName: string;
-  reportType: "weekly" | "monthly";
+  reportType: "weekly" | "monthly" | "custom";
   stats: GlucoseStats;
   dataCoverage: DataCoverage;
   events: GlucoseEvent[];

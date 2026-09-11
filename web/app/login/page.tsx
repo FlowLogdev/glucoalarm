@@ -2,7 +2,7 @@
 
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Logo } from "../lib/Logo";
+import { LogoLink } from "../lib/Logo";
 
 function LoginForm() {
   const router = useRouter();
@@ -38,9 +38,7 @@ function LoginForm() {
   return (
     <div className="auth-page">
       <div className="auth-brand-panel">
-        <a href="/" style={{ display: "inline-flex" }}>
-          <Logo size={26} />
-        </a>
+        <LogoLink />
         <div>
           <blockquote>
             &ldquo;Nothing gets missed. That&apos;s all we set out to build.&rdquo;

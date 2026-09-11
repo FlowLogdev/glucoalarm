@@ -4,6 +4,7 @@ import { detectGlucoseEvents, detectRateOfChangePatterns } from "./report-events
 import { bucketByDayPeriod, findBestWorstDays, compareStats } from "./report-patterns";
 import { generateAIReportAnalysis } from "./report-ai";
 import { sendWhatsApp, billingAlertVariables } from "./lib/whatsapp";
+import { sendReportEmail } from "./report-email";
 
 export interface ReportPerson {
   id: string;
@@ -13,7 +14,13 @@ export interface ReportPerson {
   safe_high: number;
   critical_low: number;
   critical_high: number;
+  report_email_address?: string | null;
+  report_email_weekly?: number;
+  report_email_monthly?: number;
 }
+
+export type ReportType = "weekly" | "monthly" | "custom";
+export const MAX_CUSTOM_RANGE_DAYS = 366; // ~12 months
 
 function localTimeParts(epochSeconds: number, timezone: string) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -103,10 +110,11 @@ async function fetchReadings(env: Env, personId: string, start: number, end: num
 export async function generateReport(
   env: Env,
   person: ReportPerson,
-  reportType: "weekly" | "monthly",
+  reportType: ReportType,
   periodStart: number,
   periodEnd: number,
-  now: number
+  now: number,
+  notify: boolean = true
 ): Promise<{ created: boolean }> {
   const timezone = person.timezone ?? "UTC";
   const thresholds = person;
@@ -163,28 +171,45 @@ export async function generateReport(
 
   if (result.meta.changes === 0) return { created: false };
 
-  // Best-effort notification -- reuses the same approved WhatsApp template
-  // pattern as the billing-lapse alert (src/stripe-webhook.ts). A send
-  // failure here must never undo the report that was just saved.
-  try {
-    const subscribers = await env.DB
-      .prepare(`SELECT phone_number FROM phone_subscribers WHERE person_id = ?`)
-      .bind(person.id)
-      .all<{ phone_number: string }>();
-    const label = reportType === "weekly" ? "📊 WEEKLY REPORT READY" : "📊 MONTHLY REPORT READY";
-    const time = new Intl.DateTimeFormat("en-US", { timeZone: timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(
-      new Date(now * 1000)
-    );
-    const variables = billingAlertVariables(person.name, label, time);
-    for (const sub of subscribers.results) {
+  // notify=false for on-demand/custom generation -- the customer is right
+  // there watching it appear, a "report ready" ping adds nothing. Weekly/
+  // monthly automatic generation (the daily cron) always notifies.
+  if (notify && (reportType === "weekly" || reportType === "monthly")) {
+    // Best-effort WhatsApp notification -- reuses the same approved
+    // template pattern as the billing-lapse alert (src/stripe-webhook.ts).
+    // A send failure here must never undo the report that was just saved.
+    try {
+      const subscribers = await env.DB
+        .prepare(`SELECT phone_number FROM phone_subscribers WHERE person_id = ?`)
+        .bind(person.id)
+        .all<{ phone_number: string }>();
+      const label = reportType === "weekly" ? "📊 WEEKLY REPORT READY" : "📊 MONTHLY REPORT READY";
+      const time = new Intl.DateTimeFormat("en-US", { timeZone: timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(
+        new Date(now * 1000)
+      );
+      const variables = billingAlertVariables(person.name, label, time);
+      for (const sub of subscribers.results) {
+        try {
+          await sendWhatsApp(sub.phone_number, variables, env);
+        } catch (err) {
+          console.error(`generateReport: notify failed for ${person.id} -> ${sub.phone_number}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error(`generateReport: notification step failed for ${person.id}:`, err);
+    }
+
+    // Best-effort email, independent opt-in per report type (customer
+    // configures this in Settings). Same "never undo the saved report"
+    // reasoning as the WhatsApp block above.
+    const emailEnabled = reportType === "weekly" ? person.report_email_weekly : person.report_email_monthly;
+    if (emailEnabled && person.report_email_address) {
       try {
-        await sendWhatsApp(sub.phone_number, variables, env);
+        await sendReportEmail(env, person.report_email_address, person.name, reportType, periodStart, periodEnd, timezone, stats);
       } catch (err) {
-        console.error(`generateReport: notify failed for ${person.id} -> ${sub.phone_number}:`, err);
+        console.error(`generateReport: email notify failed for ${person.id}:`, err);
       }
     }
-  } catch (err) {
-    console.error(`generateReport: notification step failed for ${person.id}:`, err);
   }
 
   return { created: true };
@@ -199,7 +224,8 @@ export async function generateReport(
 export async function checkAndGenerateReports(env: Env, now: number): Promise<void> {
   const people = await env.DB
     .prepare(
-      `SELECT people.id, people.name, people.timezone, people.safe_low, people.safe_high, people.critical_low, people.critical_high
+      `SELECT people.id, people.name, people.timezone, people.safe_low, people.safe_high, people.critical_low, people.critical_high,
+              people.report_email_address, people.report_email_weekly, people.report_email_monthly
        FROM people JOIN customers ON customers.id = people.customer_id WHERE customers.subscription_status = 'active'`
     )
     .all<ReportPerson>();

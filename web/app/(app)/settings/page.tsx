@@ -15,6 +15,7 @@ import {
   removeSubscriber,
   restartService,
   updateDosingSettings,
+  updateReportEmailSettings,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
@@ -26,6 +27,49 @@ import {
 } from "../../lib/api";
 
 const TICKER_OPTIONS = [5, 10, 15, 20, 30, 60];
+
+function ReportEmailForm({ person, readOnly }: { person: Person; readOnly: boolean }) {
+  const [email, setEmail] = useState(person.report_email_address ?? "");
+  const [weekly, setWeekly] = useState(!!person.report_email_weekly);
+  const [monthly, setMonthly] = useState(!!person.report_email_monthly);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setStatus(null);
+    try {
+      await updateReportEmailSettings(person.id, email, weekly, monthly);
+      setStatus("Saved.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+        <p className="meta">
+          Automatically email {person.name}&apos;s weekly and/or monthly glucose reports as soon
+          as they&apos;re generated, in addition to the WhatsApp notification.
+        </p>
+        <label>
+          Email address
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+        </label>
+        <label style={{ flexDirection: "row", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" checked={weekly} onChange={(e) => setWeekly(e.target.checked)} style={{ width: "auto" }} />
+          Email weekly reports
+        </label>
+        <label style={{ flexDirection: "row", alignItems: "center", gap: "0.5rem" }}>
+          <input type="checkbox" checked={monthly} onChange={(e) => setMonthly(e.target.checked)} style={{ width: "auto" }} />
+          Email monthly reports
+        </label>
+        <button type="submit">Save</button>
+        {status && <p className="meta">{status}</p>}
+      </fieldset>
+    </form>
+  );
+}
 
 function TickerIntervalForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
   const [minutes, setMinutes] = useState(person.ticker_interval_minutes ?? 20);
@@ -547,6 +591,10 @@ export default function SettingsPage() {
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Safe-range check-ins</h3>
                 <TickerIntervalForm person={person} onSaved={refresh} readOnly={readOnly} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Email reports</h3>
+                <ReportEmailForm person={person} readOnly={readOnly} />
               </div>
             </div>
           </section>

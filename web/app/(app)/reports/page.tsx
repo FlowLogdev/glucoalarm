@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import {
   addA1CRecord,
+  generateCustomGlucoseReport,
   getA1CEstimates,
   getA1CRecords,
   getCurrentAdmin,
@@ -107,6 +108,134 @@ function formatDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function ReportDetail({ report }: { report: GlucoseReport }) {
+  return (
+    <>
+      <p className="meta">
+        {formatDate(report.period_start)} – {formatDate(report.period_end)}
+      </p>
+
+      {report.data_coverage.isLimited && (
+        <p className="meta">Limited glucose data is available for this reporting period. Some trends may be less reliable.</p>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "0.6rem", margin: "0.75rem 0" }}>
+        {[
+          ["Readings", report.metrics.readingCount],
+          ["Average", report.metrics.mean != null ? `${report.metrics.mean} mg/dL` : "—"],
+          ["Median", report.metrics.median != null ? `${report.metrics.median} mg/dL` : "—"],
+          ["Min / Max", report.metrics.min != null ? `${report.metrics.min} / ${report.metrics.max}` : "—"],
+          ["Std. deviation", report.metrics.stdev ?? "—"],
+          ["Estimated GMI", report.metrics.gmi != null ? `${report.metrics.gmi}%` : "Not enough data"],
+          ["Time in range", report.metrics.timeInRangePct != null ? `${report.metrics.timeInRangePct}%` : "—"],
+          ["Time above range", report.metrics.timeAboveRangePct != null ? `${report.metrics.timeAboveRangePct}%` : "—"],
+          ["Time below range", report.metrics.timeBelowRangePct != null ? `${report.metrics.timeBelowRangePct}%` : "—"],
+          ["Data coverage", `${report.data_coverage.coveragePct}%`],
+        ].map(([label, value]) => (
+          <div key={label as string} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.5rem", textAlign: "center" }}>
+            <div className="meta" style={{ marginBottom: "0.2rem" }}>
+              {label}
+            </div>
+            <div style={{ fontWeight: 700 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {report.patterns && (
+        <>
+          <h4 style={{ marginBottom: "0.4rem" }}>By time of day</h4>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
+            {report.patterns.dayPeriodBuckets.map((b) => (
+              <div key={b.period} style={{ flex: "1 1 100px", border: "1px solid var(--border)", borderRadius: 8, padding: "0.5rem", textAlign: "center" }}>
+                <div className="meta">{DAY_PERIOD_LABELS[b.period] ?? b.period}</div>
+                <div style={{ fontWeight: 700 }}>{b.timeInRangePct != null ? `${b.timeInRangePct}% in range` : "No data"}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="meta">
+            {report.patterns.highEventCount} high event{report.patterns.highEventCount === 1 ? "" : "s"} and{" "}
+            {report.patterns.lowEventCount} low event{report.patterns.lowEventCount === 1 ? "" : "s"} detected this period.
+          </p>
+
+          {report.patterns.comparison && (
+            <>
+              <h4 style={{ marginBottom: "0.4rem" }}>Compared to the previous period</h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "1rem" }}>
+                {report.patterns.comparison
+                  .filter((c) => c.current != null && c.previous != null)
+                  .map((c) => (
+                    <div key={c.metric} className="subscriber-row">
+                      <span>{COMPARISON_LABELS[c.metric] ?? c.metric}</span>
+                      <span className="meta">
+                        {c.current} (was {c.previous}), {c.difference != null && c.difference > 0 ? "+" : ""}
+                        {c.difference}
+                        {c.unit === "percentage_points" ? " pts" : ""}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {report.ai_analysis && (
+        <>
+          <h4 style={{ marginBottom: "0.4rem" }}>AI summary</h4>
+          {report.status === "ai_pending" ? (
+            <p className="meta">AI insights are temporarily unavailable for this report.</p>
+          ) : (
+            <>
+              <p>{report.ai_analysis.summary}</p>
+              {report.ai_analysis.positive_patterns.length > 0 && (
+                <>
+                  <p className="meta" style={{ marginBottom: "0.2rem" }}>
+                    Positive patterns
+                  </p>
+                  <ul>
+                    {report.ai_analysis.positive_patterns.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {report.ai_analysis.patterns_to_watch.length > 0 && (
+                <>
+                  <p className="meta" style={{ marginBottom: "0.2rem" }}>
+                    Patterns to watch
+                  </p>
+                  <ul>
+                    {report.ai_analysis.patterns_to_watch.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {report.ai_analysis.discussion_points.length > 0 && (
+                <>
+                  <h4 style={{ marginBottom: "0.4rem" }}>Discuss with your doctor</h4>
+                  <ul>
+                    {report.ai_analysis.discussion_points.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                    {report.ai_analysis.questions_for_doctor.map((p, i) => (
+                      <li key={`q-${i}`}>{p}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className="meta" style={{ marginTop: "0.75rem" }}>
+                {report.ai_analysis.disclaimer}
+              </p>
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 function GlucoseReportSection({ person }: { person: Person }) {
   const [type, setType] = useState<"weekly" | "monthly">("weekly");
   const [report, setReport] = useState<GlucoseReport | null | undefined>(undefined);
@@ -141,130 +270,64 @@ function GlucoseReportSection({ person }: { person: Person }) {
           each completed {type === "weekly" ? "week" : "calendar month"}.
         </p>
       )}
-      {report && (
-        <>
-          <p className="meta">
-            {formatDate(report.period_start)} – {formatDate(report.period_end)}
-          </p>
+      {report && <ReportDetail report={report} />}
+    </div>
+  );
+}
 
-          {report.data_coverage.isLimited && (
-            <p className="meta">Limited glucose data is available for this reporting period. Some trends may be less reliable.</p>
-          )}
+const MS_PER_DAY = 86400;
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "0.6rem", margin: "0.75rem 0" }}>
-            {[
-              ["Readings", report.metrics.readingCount],
-              ["Average", report.metrics.mean != null ? `${report.metrics.mean} mg/dL` : "—"],
-              ["Median", report.metrics.median != null ? `${report.metrics.median} mg/dL` : "—"],
-              ["Min / Max", report.metrics.min != null ? `${report.metrics.min} / ${report.metrics.max}` : "—"],
-              ["Std. deviation", report.metrics.stdev ?? "—"],
-              ["Estimated GMI", report.metrics.gmi != null ? `${report.metrics.gmi}%` : "Not enough data"],
-              ["Time in range", report.metrics.timeInRangePct != null ? `${report.metrics.timeInRangePct}%` : "—"],
-              ["Time above range", report.metrics.timeAboveRangePct != null ? `${report.metrics.timeAboveRangePct}%` : "—"],
-              ["Time below range", report.metrics.timeBelowRangePct != null ? `${report.metrics.timeBelowRangePct}%` : "—"],
-              ["Data coverage", `${report.data_coverage.coveragePct}%`],
-            ].map(([label, value]) => (
-              <div key={label as string} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "0.5rem", textAlign: "center" }}>
-                <div className="meta" style={{ marginBottom: "0.2rem" }}>
-                  {label}
-                </div>
-                <div style={{ fontWeight: 700 }}>{value}</div>
-              </div>
-            ))}
+function CustomReportCard({ person, readOnly }: { person: Person; readOnly: boolean }) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [report, setReport] = useState<GlucoseReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onGenerate(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const periodStart = Math.floor(new Date(startDate).getTime() / 1000);
+      const periodEnd = Math.floor(new Date(endDate).getTime() / 1000) + MS_PER_DAY;
+      if (periodEnd <= periodStart) throw new Error("End date must be after start date");
+      if ((periodEnd - periodStart) / MS_PER_DAY > 366) throw new Error("Range cannot exceed 12 months");
+      const result = await generateCustomGlucoseReport(person.id, periodStart, periodEnd);
+      setReport(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate report");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Custom range report</h3>
+      <p className="meta">Generate a report for any date range up to 12 months.</p>
+      {!readOnly && (
+        <form onSubmit={onGenerate}>
+          <div className="card-grid" style={{ gap: "0.75rem" }}>
+            <label>
+              Start date
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+            </label>
+            <label>
+              End date
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            </label>
           </div>
-
-          {report.patterns && (
-            <>
-              <h4 style={{ marginBottom: "0.4rem" }}>By time of day</h4>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
-                {report.patterns.dayPeriodBuckets.map((b) => (
-                  <div key={b.period} style={{ flex: "1 1 100px", border: "1px solid var(--border)", borderRadius: 8, padding: "0.5rem", textAlign: "center" }}>
-                    <div className="meta">{DAY_PERIOD_LABELS[b.period] ?? b.period}</div>
-                    <div style={{ fontWeight: 700 }}>{b.timeInRangePct != null ? `${b.timeInRangePct}% in range` : "No data"}</div>
-                  </div>
-                ))}
-              </div>
-
-              <p className="meta">
-                {report.patterns.highEventCount} high event{report.patterns.highEventCount === 1 ? "" : "s"} and{" "}
-                {report.patterns.lowEventCount} low event{report.patterns.lowEventCount === 1 ? "" : "s"} detected this period.
-              </p>
-
-              {report.patterns.comparison && (
-                <>
-                  <h4 style={{ marginBottom: "0.4rem" }}>Compared to the previous period</h4>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "1rem" }}>
-                    {report.patterns.comparison
-                      .filter((c) => c.current != null && c.previous != null)
-                      .map((c) => (
-                        <div key={c.metric} className="subscriber-row">
-                          <span>{COMPARISON_LABELS[c.metric] ?? c.metric}</span>
-                          <span className="meta">
-                            {c.current} (was {c.previous}), {c.difference != null && c.difference > 0 ? "+" : ""}
-                            {c.difference}
-                            {c.unit === "percentage_points" ? " pts" : ""}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {report.ai_analysis && (
-            <>
-              <h4 style={{ marginBottom: "0.4rem" }}>AI summary</h4>
-              {report.status === "ai_pending" ? (
-                <p className="meta">AI insights are temporarily unavailable for this report.</p>
-              ) : (
-                <>
-                  <p>{report.ai_analysis.summary}</p>
-                  {report.ai_analysis.positive_patterns.length > 0 && (
-                    <>
-                      <p className="meta" style={{ marginBottom: "0.2rem" }}>
-                        Positive patterns
-                      </p>
-                      <ul>
-                        {report.ai_analysis.positive_patterns.map((p, i) => (
-                          <li key={i}>{p}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  {report.ai_analysis.patterns_to_watch.length > 0 && (
-                    <>
-                      <p className="meta" style={{ marginBottom: "0.2rem" }}>
-                        Patterns to watch
-                      </p>
-                      <ul>
-                        {report.ai_analysis.patterns_to_watch.map((p, i) => (
-                          <li key={i}>{p}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  {report.ai_analysis.discussion_points.length > 0 && (
-                    <>
-                      <h4 style={{ marginBottom: "0.4rem" }}>Discuss with your doctor</h4>
-                      <ul>
-                        {report.ai_analysis.discussion_points.map((p, i) => (
-                          <li key={i}>{p}</li>
-                        ))}
-                        {report.ai_analysis.questions_for_doctor.map((p, i) => (
-                          <li key={`q-${i}`}>{p}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  <p className="meta" style={{ marginTop: "0.75rem" }}>
-                    {report.ai_analysis.disclaimer}
-                  </p>
-                </>
-              )}
-            </>
-          )}
-        </>
+          <button type="submit" disabled={loading}>
+            {loading ? "Generating..." : "Generate report"}
+          </button>
+        </form>
+      )}
+      {error && <p className="meta">{error}</p>}
+      {report && (
+        <div style={{ marginTop: "1rem" }}>
+          <ReportDetail report={report} />
+        </div>
       )}
     </div>
   );
@@ -454,6 +517,7 @@ function PersonReport({ person, period, readOnly }: { person: Person; period: Re
 
       <div className="card-grid" style={{ marginTop: "1rem" }}>
         <GlucoseReportSection person={person} />
+        <CustomReportCard person={person} readOnly={readOnly} />
         <LabA1CCard person={person} readOnly={readOnly} />
       </div>
     </section>

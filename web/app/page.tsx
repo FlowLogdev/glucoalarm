@@ -1,12 +1,10 @@
-import { Logo } from "./lib/Logo";
+import { LogoLink } from "./lib/Logo";
 
 export default function MarketingPage() {
   return (
     <div className="marketing">
       <nav className="marketing-nav">
-        <a className="brand" href="/" style={{ display: "inline-flex" }}>
-          <Logo size={26} />
-        </a>
+        <LogoLink isHomePage />
         <div className="marketing-nav-links">
           <a href="/signup">Pricing</a>
           <a href="/docs">Docs</a>

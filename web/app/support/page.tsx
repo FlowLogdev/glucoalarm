@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Logo } from "../lib/Logo";
+import { LogoLink } from "../lib/Logo";
 import {
   checkLoggedIn,
   createPublicTicket,
@@ -314,9 +314,7 @@ export default function SupportPage() {
   return (
     <div className={loggedIn ? undefined : "marketing"}>
       <nav className="marketing-nav">
-        <a className="brand" href="/" style={{ display: "inline-flex" }}>
-          <Logo size={26} />
-        </a>
+        <LogoLink />
         {loggedIn ? (
           <a className="btn-primary" href="/dashboard">
             Dashboard

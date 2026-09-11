@@ -11,7 +11,7 @@ import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
 import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
-import { generateReport, determineDuePeriods, type ReportPerson } from "./reports-generator";
+import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type ReportPerson } from "./reports-generator";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
@@ -78,7 +78,7 @@ function computeStatus(
   return classifyTier(person, reading.value_mgdl);
 }
 
-const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose, timezone, ticker_interval_minutes`;
+const PERSON_COLUMNS = `id, name, safe_low, safe_high, critical_low, critical_high, stale_minutes, carb_ratio, correction_factor, target_glucose, timezone, ticker_interval_minutes, report_email_address, report_email_weekly, report_email_monthly`;
 
 interface PersonWithDosing extends Person {
   carb_ratio: number | null;
@@ -86,6 +86,9 @@ interface PersonWithDosing extends Person {
   target_glucose: number | null;
   timezone: string | null;
   ticker_interval_minutes: number;
+  report_email_address: string | null;
+  report_email_weekly: number;
+  report_email_monthly: number;
 }
 
 async function postLogin(env: Env, request: Request, now: number): Promise<Response> {
@@ -608,8 +611,8 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   if (method === "GET" && path === "/api/glucose-reports") {
     const personId = url.searchParams.get("person_id");
     const reportType = url.searchParams.get("type");
-    if (!personId || (reportType !== "weekly" && reportType !== "monthly")) {
-      return jsonResponse({ error: "person_id and type ('weekly' or 'monthly') are required" }, 400);
+    if (!personId || (reportType !== "weekly" && reportType !== "monthly" && reportType !== "custom")) {
+      return jsonResponse({ error: "person_id and type ('weekly', 'monthly', or 'custom') are required" }, 400);
     }
     if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     const limit = Math.min(24, Math.max(1, Number(url.searchParams.get("limit") ?? "1")));
@@ -682,6 +685,58 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
       results.push({ ...period, ...outcome });
     }
     return jsonResponse({ results });
+  }
+
+  // Customer-facing on-demand report for any date range up to 12 months.
+  // report_type is always 'custom' here -- kept separate from the
+  // automatically-scheduled weekly/monthly rows so they never collide or
+  // get mixed into the "latest weekly/monthly" queries. No notification
+  // (WhatsApp/email) fires for these -- the customer is watching it
+  // generate, a "report ready" ping adds nothing.
+  if (method === "POST" && path === "/api/reports/custom") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    const body = await request.json<{ person_id?: string; period_start?: number; period_end?: number }>();
+    if (!body.person_id || body.period_start == null || body.period_end == null) {
+      return jsonResponse({ error: "person_id, period_start, and period_end are required" }, 400);
+    }
+    if (!(await assertOwnsPerson(env, a, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
+    if (body.period_end <= body.period_start) {
+      return jsonResponse({ error: "period_end must be after period_start" }, 400);
+    }
+    if (body.period_end > now) {
+      return jsonResponse({ error: "period_end cannot be in the future" }, 400);
+    }
+    const rangeDays = (body.period_end - body.period_start) / 86400;
+    if (rangeDays > MAX_CUSTOM_RANGE_DAYS) {
+      return jsonResponse({ error: `range cannot exceed ${MAX_CUSTOM_RANGE_DAYS} days (about 12 months)` }, 400);
+    }
+    const person = await env.DB
+      .prepare(
+        `SELECT id, name, timezone, safe_low, safe_high, critical_low, critical_high FROM people WHERE id = ?`
+      )
+      .bind(body.person_id)
+      .first<ReportPerson>();
+    if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+
+    const outcome = await generateReport(env, person, "custom", body.period_start, body.period_end, now, false);
+    return jsonResponse({ periodStart: body.period_start, periodEnd: body.period_end, ...outcome });
+  }
+
+  if (method === "POST" && path === "/api/settings/report-email") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    const body = await request.json<{ person_id?: string; email?: string | null; weekly?: boolean; monthly?: boolean }>();
+    if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
+    if ((body.weekly || body.monthly) && !body.email) {
+      return jsonResponse({ error: "an email address is required to enable report email delivery" }, 400);
+    }
+    await env.DB
+      .prepare(`UPDATE people SET report_email_address = ?, report_email_weekly = ?, report_email_monthly = ? WHERE id = ?`)
+      .bind(body.email || null, body.weekly ? 1 : 0, body.monthly ? 1 : 0, body.person_id)
+      .run();
+    return jsonResponse({ ok: true });
   }
 
   if (method === "GET" && path === "/api/subscribers") {
