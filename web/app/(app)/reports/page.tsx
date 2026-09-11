@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import {
+  getA1CEstimates,
   getPeople,
   getReport,
   updateTimezone,
+  type A1CEstimate,
   type Person,
   type Report,
   type ReportPeriod,
@@ -20,6 +22,60 @@ const PERIODS: { key: ReportPeriod; label: string }[] = [
 ];
 
 const TIER_KEYS = ["critical_high", "warn_high", "safe", "warn_low", "critical_low"] as const;
+
+function A1CCard({ person }: { person: Person }) {
+  const [estimates, setEstimates] = useState<A1CEstimate[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getA1CEstimates(person.id)
+      .then(setEstimates)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }, [person.id]);
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Estimated A1C</h3>
+      {error && <p className="meta">{error}</p>}
+      {!error && !estimates && <p className="meta">Loading…</p>}
+      {estimates && (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
+            {estimates.map((e) => (
+              <div
+                key={e.key}
+                style={{
+                  flex: "1 1 90px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "0.6rem 0.5rem",
+                  textAlign: "center",
+                }}
+              >
+                <div className="meta" style={{ marginBottom: "0.25rem" }}>
+                  {e.label}
+                </div>
+                {e.estimatedA1c != null ? (
+                  <>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{e.estimatedA1c}%</div>
+                    <div className="meta">avg {e.averageMgdl} mg/dL</div>
+                  </>
+                ) : (
+                  <div className="meta">Not enough data</div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="meta" style={{ marginTop: "0.75rem" }}>
+            Calculated from {person.name}&apos;s own CGM readings using the Glucose Management
+            Indicator (GMI) formula. This is an estimate, not a lab A1C test, and should be
+            confirmed with a real lab result before making care decisions.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
 
 function PersonReport({ person, period }: { person: Person; period: ReportPeriod }) {
   const [report, setReport] = useState<Report | null>(null);
@@ -44,6 +100,9 @@ function PersonReport({ person, period }: { person: Person; period: ReportPeriod
   return (
     <section>
       <h2>{person.name}</h2>
+      <div className="card-grid" style={{ marginBottom: "1rem" }}>
+        <A1CCard person={person} />
+      </div>
       <div className="card-grid">
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Readings by range</h3>

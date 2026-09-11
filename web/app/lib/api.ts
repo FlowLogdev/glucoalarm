@@ -192,6 +192,18 @@ export function removeInsulinLogEntry(id: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>(`/insulin-log/${id}`, { method: "DELETE" });
 }
 
+export interface A1CEstimate {
+  key: string;
+  label: string;
+  averageMgdl: number | null;
+  estimatedA1c: number | null;
+  readingCount: number;
+}
+
+export function getA1CEstimates(personId: string): Promise<A1CEstimate[]> {
+  return apiFetch<A1CEstimate[]>(`/a1c?person_id=${encodeURIComponent(personId)}`);
+}
+
 export function getReport(personId: string, period: ReportPeriod): Promise<Report> {
   return apiFetch<Report>(`/reports?person_id=${encodeURIComponent(personId)}&period=${period}`);
 }

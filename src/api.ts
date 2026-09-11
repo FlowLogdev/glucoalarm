@@ -1,6 +1,7 @@
 import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
 import { bearerToken, getSessionAdmin, login, logout, type Admin } from "./auth";
 import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
+import { getA1CEstimates } from "./a1c";
 import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
@@ -514,6 +515,15 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
     if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
     return getReportRoute(env, personId, url.searchParams.get("period"), now);
+  }
+
+  if (method === "GET" && path === "/api/a1c") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    const estimates = await getA1CEstimates(env, personId, now);
+    if (!estimates) return jsonResponse({ error: "person_not_found" }, 404);
+    return jsonResponse(estimates);
   }
 
   if (method === "GET" && path === "/api/subscribers") {
