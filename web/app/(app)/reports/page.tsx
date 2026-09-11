@@ -1,7 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import {
   addA1CRecord,
   generateCustomGlucoseReport,
@@ -16,12 +27,13 @@ import {
   type A1CEstimate,
   type A1CRecord,
   type CurrentAdmin,
+  type Episode,
   type GlucoseReport,
   type Person,
   type Report,
   type ReportPeriod,
 } from "../../lib/api";
-import { formatDateTime, formatDuration, statusColor, statusLabel } from "../../lib/format";
+import { formatDuration, statusColor, statusLabel } from "../../lib/format";
 import { InsightCard } from "../../lib/InsightCard";
 import { GlucoalarmBot } from "../../lib/GlucoalarmBot";
 
@@ -418,6 +430,115 @@ function LabA1CCard({ person, readOnly }: { person: Person; readOnly: boolean })
   );
 }
 
+interface EpisodePoint {
+  time: number;
+  high: number | null;
+  low: number | null;
+  ep: Episode;
+}
+
+function buildEpisodeChartData(episodes: Episode[]): EpisodePoint[] {
+  return [...episodes]
+    .sort((a, b) => a.startAt - b.startAt)
+    .map((ep) => ({
+      time: ep.startAt,
+      high: ep.direction === "high" ? ep.extremeValue : null,
+      low: ep.direction === "low" ? ep.extremeValue : null,
+      ep,
+    }));
+}
+
+function tierLabel(ep: Episode): string {
+  if (ep.direction === "high") return ep.reachedCritical ? "Critical high" : "High";
+  return ep.reachedCritical ? "Critical low" : "Low";
+}
+
+function EpisodeTooltip({ active, payload }: { active?: boolean; payload?: { value: number | null; payload: EpisodePoint }[] }) {
+  if (!active || !payload?.length) return null;
+  const point = payload.find((p) => p.value != null)?.payload;
+  if (!point) return null;
+  const ep = point.ep;
+  const d = new Date(ep.startAt * 1000);
+  const color = ep.reachedCritical ? "var(--status-red)" : "var(--status-orange)";
+  return (
+    <div
+      style={{
+        background: "#15181d",
+        border: "1px solid #262b33",
+        borderRadius: 6,
+        padding: "0.5rem 0.75rem",
+        fontSize: "0.82rem",
+        lineHeight: 1.5,
+      }}
+    >
+      <strong style={{ color }}>{tierLabel(ep)}</strong>
+      <div>
+        {ep.extremeValue} mg/dL{ep.ongoing ? " (ongoing)" : ""}
+      </div>
+      <div className="meta">
+        {d.toLocaleDateString([], { month: "short", day: "numeric" })} ·{" "}
+        {d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true })}
+      </div>
+      <div className="meta">Lasted {formatDuration(ep.endAt - ep.startAt)}</div>
+    </div>
+  );
+}
+
+function makeEpisodeDot(seriesKey: "high" | "low", baseColor: string) {
+  return (props: { cx?: number; cy?: number; payload?: EpisodePoint }) => {
+    const { cx, cy, payload } = props;
+    if (cx == null || cy == null || !payload || payload[seriesKey] == null) return <g />;
+    const color = payload.ep.reachedCritical ? "var(--status-red)" : baseColor;
+    return <circle cx={cx} cy={cy} r={4} fill={color} stroke="var(--panel)" strokeWidth={1} />;
+  };
+}
+
+function EpisodeTrendChart({ episodes }: { episodes: Episode[] }) {
+  if (episodes.length === 0) {
+    return <p className="meta">No highs or lows outside the safe range this period.</p>;
+  }
+  const data = buildEpisodeChartData(episodes);
+  return (
+    <div style={{ height: 220 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={(t: number) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}
+            tick={{ fontSize: 11, fill: "var(--text-dim)" }}
+            stroke="var(--border)"
+          />
+          <YAxis tick={{ fontSize: 11, fill: "var(--text-dim)" }} stroke="var(--border)" width={44} />
+          <Tooltip content={<EpisodeTooltip />} />
+          <Legend wrapperStyle={{ fontSize: "0.8rem" }} />
+          <Line
+            type="monotone"
+            dataKey="high"
+            name="Spikes"
+            stroke="var(--status-orange)"
+            strokeWidth={2}
+            connectNulls
+            dot={makeEpisodeDot("high", "var(--status-orange)")}
+            activeDot={{ r: 6 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="low"
+            name="Lows"
+            stroke="#5b9bd5"
+            strokeWidth={2}
+            connectNulls
+            dot={makeEpisodeDot("low", "#5b9bd5")}
+            activeDot={{ r: 6 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function PersonReport({ person, period, readOnly }: { person: Person; period: ReportPeriod; readOnly: boolean }) {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -489,26 +610,12 @@ function PersonReport({ person, period, readOnly }: { person: Person; period: Re
 
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Spikes and lows</h3>
-          {report.episodes.length === 0 ? (
-            <p className="meta">No highs or lows outside the safe range this period.</p>
-          ) : (
-            report.episodes.map((ep, i) => (
-              <div className="subscriber-row" key={i}>
-                <span>
-                  <strong style={{ color: ep.reachedCritical ? "var(--status-red)" : "var(--status-orange)" }}>
-                    {ep.reachedCritical ? "CRITICAL " : ""}
-                    {ep.direction === "low" ? "Low" : "High"}
-                  </strong>{" "}
-                  <span className="meta">
-                    {ep.extremeValue} mg/dL{ep.ongoing ? " (ongoing)" : ""}
-                  </span>
-                  <br />
-                  <span className="meta">
-                    {formatDateTime(ep.startAt)} · {formatDuration(ep.endAt - ep.startAt)}
-                  </span>
-                </span>
-              </div>
-            ))
+          <EpisodeTrendChart episodes={report.episodes} />
+          {report.episodes.length > 0 && (
+            <p className="meta" style={{ marginTop: "0.5rem" }}>
+              Hover a point for the exact reading, tier, and time. Based on {report.episodes.length} event
+              {report.episodes.length === 1 ? "" : "s"} this period.
+            </p>
           )}
         </div>
 
