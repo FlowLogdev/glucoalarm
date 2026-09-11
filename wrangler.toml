@@ -41,7 +41,7 @@ STRIPE_PRICE_ID = "price_1UELdJHnnXzltzilfl0yGwS0"
 # OAuth 2.0 Client ID from a Google Cloud Console project (APIs & Services >
 # Credentials). Not a secret -- Client IDs are meant to be public, they're
 # embedded in the browser's redirect URL to Google.
-GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_ID = "990892015764-ceebifcao0repnfu2t2kve3uhb4ghved.apps.googleusercontent.com"
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest
