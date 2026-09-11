@@ -5,6 +5,7 @@ import { getAllTimezones, timezoneOffsetLabel } from "../../lib/timezones";
 import { GlucoalarmBot } from "../../lib/GlucoalarmBot";
 import {
   addSubscriber,
+  getCurrentAdmin,
   getDoctors,
   getPeople,
   getServiceStatus,
@@ -17,6 +18,7 @@ import {
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
+  type CurrentAdmin,
   type Doctor,
   type Person,
   type ServiceStatus,
@@ -25,7 +27,7 @@ import {
 
 const TICKER_OPTIONS = [5, 10, 15, 20, 30, 60];
 
-function TickerIntervalForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+function TickerIntervalForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
   const [minutes, setMinutes] = useState(person.ticker_interval_minutes ?? 20);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -43,27 +45,29 @@ function TickerIntervalForm({ person, onSaved }: { person: Person; onSaved: () =
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">
-        How often to send a WhatsApp check-in while {person.name}&apos;s glucose is in the safe
-        range. Out-of-range alerts are unaffected by this setting.
-      </p>
-      <label>
-        Check-in every
-        <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
-          {TICKER_OPTIONS.map((m) => (
-            <option key={m} value={m}>
-              {m} minutes
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="submit">Save</button>
-      {status && <p className="meta">{status}</p>}
+      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+        <p className="meta">
+          How often to send a WhatsApp check-in while {person.name}&apos;s glucose is in the safe
+          range. Out-of-range alerts are unaffected by this setting.
+        </p>
+        <label>
+          Check-in every
+          <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+            {TICKER_OPTIONS.map((m) => (
+              <option key={m} value={m}>
+                {m} minutes
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit">Save</button>
+        {status && <p className="meta">{status}</p>}
+      </fieldset>
     </form>
   );
 }
 
-function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+function ThresholdForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
   const [safeLow, setSafeLow] = useState(person.safe_low);
   const [safeHigh, setSafeHigh] = useState(person.safe_high);
   const [criticalLow, setCriticalLow] = useState(person.critical_low);
@@ -89,57 +93,59 @@ function ThresholdForm({ person, onSaved }: { person: Person; onSaved: () => voi
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">
-        Safe range: no WhatsApp messages. Between safe and critical: every 5 min. Beyond critical:
-        every 1 min, marked CRITICAL.
-      </p>
-      <label>
-        Critical low (mg/dL) — below this, every 1 min
-        <input
-          type="number"
-          value={criticalLow}
-          onChange={(e) => setCriticalLow(Number(e.target.value))}
-          required
-        />
-      </label>
-      <label>
-        Safe range low (mg/dL)
-        <input type="number" value={safeLow} onChange={(e) => setSafeLow(Number(e.target.value))} required />
-      </label>
-      <label>
-        Safe range high (mg/dL)
-        <input
-          type="number"
-          value={safeHigh}
-          onChange={(e) => setSafeHigh(Number(e.target.value))}
-          required
-        />
-      </label>
-      <label>
-        Critical high (mg/dL) — above this, every 1 min
-        <input
-          type="number"
-          value={criticalHigh}
-          onChange={(e) => setCriticalHigh(Number(e.target.value))}
-          required
-        />
-      </label>
-      <label>
-        Stale after (minutes)
-        <input
-          type="number"
-          value={staleMinutes}
-          onChange={(e) => setStaleMinutes(Number(e.target.value))}
-          required
-        />
-      </label>
-      <button type="submit">Save thresholds</button>
-      {status && <p className="meta">{status}</p>}
+      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+        <p className="meta">
+          Safe range: no WhatsApp messages. Between safe and critical: every 5 min. Beyond critical:
+          every 1 min, marked CRITICAL.
+        </p>
+        <label>
+          Critical low (mg/dL) — below this, every 1 min
+          <input
+            type="number"
+            value={criticalLow}
+            onChange={(e) => setCriticalLow(Number(e.target.value))}
+            required
+          />
+        </label>
+        <label>
+          Safe range low (mg/dL)
+          <input type="number" value={safeLow} onChange={(e) => setSafeLow(Number(e.target.value))} required />
+        </label>
+        <label>
+          Safe range high (mg/dL)
+          <input
+            type="number"
+            value={safeHigh}
+            onChange={(e) => setSafeHigh(Number(e.target.value))}
+            required
+          />
+        </label>
+        <label>
+          Critical high (mg/dL) — above this, every 1 min
+          <input
+            type="number"
+            value={criticalHigh}
+            onChange={(e) => setCriticalHigh(Number(e.target.value))}
+            required
+          />
+        </label>
+        <label>
+          Stale after (minutes)
+          <input
+            type="number"
+            value={staleMinutes}
+            onChange={(e) => setStaleMinutes(Number(e.target.value))}
+            required
+          />
+        </label>
+        <button type="submit">Save thresholds</button>
+        {status && <p className="meta">{status}</p>}
+      </fieldset>
     </form>
   );
 }
 
-function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+function DosingForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
   const [carbRatio, setCarbRatio] = useState(person.carb_ratio?.toString() ?? "");
   const [correctionFactor, setCorrectionFactor] = useState(person.correction_factor?.toString() ?? "");
   const [targetGlucose, setTargetGlucose] = useState(person.target_glucose?.toString() ?? "");
@@ -164,50 +170,52 @@ function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">
-        Enter these exactly as prescribed by the patient&apos;s doctor. Used only for plain
-        arithmetic on the Log page, never AI-generated. Leave blank to hide the calculation.
-      </p>
-      <label>
-        Carb ratio (grams of carbs per 1 unit of insulin)
-        <input
-          type="number"
-          min="0"
-          step="0.1"
-          value={carbRatio}
-          onChange={(e) => setCarbRatio(e.target.value)}
-          placeholder="e.g. 10"
-        />
-      </label>
-      <label>
-        Correction factor (mg/dL drop per 1 unit)
-        <input
-          type="number"
-          min="0"
-          step="0.1"
-          value={correctionFactor}
-          onChange={(e) => setCorrectionFactor(e.target.value)}
-          placeholder="e.g. 40"
-        />
-      </label>
-      <label>
-        Target glucose for correction (mg/dL)
-        <input
-          type="number"
-          min="0"
-          step="1"
-          value={targetGlucose}
-          onChange={(e) => setTargetGlucose(e.target.value)}
-          placeholder="e.g. 150"
-        />
-      </label>
-      <button type="submit">Save dosing formula</button>
-      {status && <p className="meta">{status}</p>}
+      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+        <p className="meta">
+          Enter these exactly as prescribed by the patient&apos;s doctor. Used only for plain
+          arithmetic on the Log page, never AI-generated. Leave blank to hide the calculation.
+        </p>
+        <label>
+          Carb ratio (grams of carbs per 1 unit of insulin)
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={carbRatio}
+            onChange={(e) => setCarbRatio(e.target.value)}
+            placeholder="e.g. 10"
+          />
+        </label>
+        <label>
+          Correction factor (mg/dL drop per 1 unit)
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={correctionFactor}
+            onChange={(e) => setCorrectionFactor(e.target.value)}
+            placeholder="e.g. 40"
+          />
+        </label>
+        <label>
+          Target glucose for correction (mg/dL)
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={targetGlucose}
+            onChange={(e) => setTargetGlucose(e.target.value)}
+            placeholder="e.g. 150"
+          />
+        </label>
+        <button type="submit">Save dosing formula</button>
+        {status && <p className="meta">{status}</p>}
+      </fieldset>
     </form>
   );
 }
 
-function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
+function TimezoneForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
   const [timezone, setTimezone] = useState(person.timezone ?? "");
   const [status, setStatus] = useState<string | null>(null);
   const groups = useMemo(getAllTimezones, []);
@@ -226,32 +234,34 @@ function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); save(timezone); }}>
-      <p className="meta">
-        Used to compute time-of-day pattern insights in the right local time. Auto-detected from
-        whatever device last viewed Reports; override here if that's wrong (e.g. traveling).
-      </p>
-      <label>
-        Timezone
-        <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-          <option value="">Not set</option>
-          {groups.map((group) => (
-            <optgroup key={group.region} label={group.region}>
-              {group.zones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone.replace(/_/g, " ")} ({timezoneOffsetLabel(zone)})
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        <button type="submit">Save</button>
-        <button type="button" onClick={() => save(Intl.DateTimeFormat().resolvedOptions().timeZone)}>
-          Use this device&apos;s timezone
-        </button>
-      </div>
-      {status && <p className="meta">{status}</p>}
+      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+        <p className="meta">
+          Used to compute time-of-day pattern insights in the right local time. Auto-detected from
+          whatever device last viewed Reports; override here if that's wrong (e.g. traveling).
+        </p>
+        <label>
+          Timezone
+          <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            <option value="">Not set</option>
+            {groups.map((group) => (
+              <optgroup key={group.region} label={group.region}>
+                {group.zones.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone.replace(/_/g, " ")} ({timezoneOffsetLabel(zone)})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button type="submit">Save</button>
+          <button type="button" onClick={() => save(Intl.DateTimeFormat().resolvedOptions().timeZone)}>
+            Use this device&apos;s timezone
+          </button>
+        </div>
+        {status && <p className="meta">{status}</p>}
+      </fieldset>
     </form>
   );
 }
@@ -262,7 +272,7 @@ const STATUS_META: Record<ServiceStatus["status"], { color: string; label: strin
   down: { color: "var(--status-red)", label: "Service down" },
 };
 
-function ServiceStatusCard({ person }: { person: Person }) {
+function ServiceStatusCard({ person, readOnly }: { person: Person; readOnly: boolean }) {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
@@ -313,7 +323,7 @@ function ServiceStatusCard({ person }: { person: Person }) {
             {status && <div className="meta">{status.detail}</div>}
           </div>
         </div>
-        <button type="button" onClick={onRestart} disabled={restarting}>
+        <button type="button" onClick={onRestart} disabled={restarting || readOnly}>
           {restarting ? "Restarting..." : "Restart service"}
         </button>
       </div>
@@ -402,7 +412,7 @@ function DoctorAccessCard() {
   );
 }
 
-function SubscriberManager({ personId }: { personId: string }) {
+function SubscriberManager({ personId, readOnly }: { personId: string; readOnly: boolean }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [label, setLabel] = useState("");
@@ -446,7 +456,7 @@ function SubscriberManager({ personId }: { personId: string }) {
           <span>
             {s.phone_number} {s.label && <span className="meta">({s.label})</span>}
           </span>
-          <button className="danger" onClick={() => onRemove(s.id)}>
+          <button className="danger" onClick={() => onRemove(s.id)} disabled={readOnly}>
             Remove
           </button>
         </div>
@@ -454,21 +464,23 @@ function SubscriberManager({ personId }: { personId: string }) {
       {subscribers?.length === 0 && <p className="meta">No phone numbers yet.</p>}
 
       <form onSubmit={onAdd} style={{ marginTop: "1rem" }}>
-        <label>
-          Phone number (E.164, e.g. +13055551234)
-          <input
-            type="tel"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="+13055551234"
-            required
-          />
-        </label>
-        <label>
-          Label (optional)
-          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Mom's phone" />
-        </label>
-        <button type="submit">Add phone number</button>
+        <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
+          <label>
+            Phone number (E.164, e.g. +13055551234)
+            <input
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+13055551234"
+              required
+            />
+          </label>
+          <label>
+            Label (optional)
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Mom's phone" />
+          </label>
+          <button type="submit">Add phone number</button>
+        </fieldset>
       </form>
       {error && <p className="meta">{error}</p>}
     </div>
@@ -477,6 +489,7 @@ function SubscriberManager({ personId }: { personId: string }) {
 
 export default function SettingsPage() {
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [admin, setAdmin] = useState<CurrentAdmin | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function refresh() {
@@ -486,48 +499,66 @@ export default function SettingsPage() {
   }
 
   useEffect(refresh, []);
+  useEffect(() => {
+    getCurrentAdmin()
+      .then(setAdmin)
+      .catch(() => setAdmin(null));
+  }, []);
 
   if (error) return <p className="meta">{error}</p>;
   if (!people) return <p className="meta">Loading…</p>;
+
+  const readOnly = admin?.role === "doctor";
 
   return (
     <div className="settings-layout">
       <div>
         <h1>Settings</h1>
+        {readOnly && (
+          <div className="card" style={{ borderColor: "var(--status-orange)", marginBottom: "1.5rem" }}>
+            <strong>Read-only access.</strong>{" "}
+            <span className="meta">
+              You were invited as a doctor. You can view readings, reports, and download data, but
+              can&apos;t change any settings, contacts, or billing.
+            </span>
+          </div>
+        )}
         {people.map((person) => (
           <section key={person.id}>
             <h2>{person.name}</h2>
-            <ServiceStatusCard person={person} />
+            <ServiceStatusCard person={person} readOnly={readOnly} />
             <div className="card-grid">
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Thresholds</h3>
-                <ThresholdForm person={person} onSaved={refresh} />
+                <ThresholdForm person={person} onSaved={refresh} readOnly={readOnly} />
               </div>
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Alert phone numbers</h3>
-                <SubscriberManager personId={person.id} />
+                <SubscriberManager personId={person.id} readOnly={readOnly} />
               </div>
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
-                <DosingForm person={person} onSaved={refresh} />
+                <DosingForm person={person} onSaved={refresh} readOnly={readOnly} />
               </div>
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Timezone</h3>
-                <TimezoneForm person={person} onSaved={refresh} />
+                <TimezoneForm person={person} onSaved={refresh} readOnly={readOnly} />
               </div>
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Safe-range check-ins</h3>
-                <TickerIntervalForm person={person} onSaved={refresh} />
+                <TickerIntervalForm person={person} onSaved={refresh} readOnly={readOnly} />
               </div>
             </div>
           </section>
         ))}
-        <section>
-          <h2>Access</h2>
-          <div className="card-grid">
-            <DoctorAccessCard />
-          </div>
-        </section>
+        {!readOnly && (
+          <section>
+            <h2>Access</h2>
+            <div className="card-grid">
+              <DoctorAccessCard />
+            </div>
+          </section>
+        )}
       </div>
       <GlucoalarmBot subtitle="Ask a setup question" />
     </div>

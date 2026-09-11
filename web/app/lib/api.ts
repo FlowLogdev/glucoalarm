@@ -330,6 +330,16 @@ export function sendSetupAssistantMessage(messages: AssistantMessage[]): Promise
   return apiFetch<{ reply: string }>("/setup-assistant", { method: "POST", body: JSON.stringify({ messages }) });
 }
 
+export interface CurrentAdmin {
+  email: string;
+  role: "owner" | "doctor";
+  is_super_admin: boolean;
+}
+
+export function getCurrentAdmin(): Promise<CurrentAdmin> {
+  return apiFetch<CurrentAdmin>("/me");
+}
+
 export interface Doctor {
   id: string;
   email: string;

@@ -540,6 +540,10 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     return csv;
   }
 
+  if (method === "GET" && path === "/api/me") {
+    return jsonResponse({ email: a.email, role: a.role, is_super_admin: !!a.is_super_admin });
+  }
+
   if (method === "POST" && path === "/api/setup-assistant") {
     return postSetupAssistant(env, request);
   }
