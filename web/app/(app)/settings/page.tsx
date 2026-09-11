@@ -1,16 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getAllTimezones, timezoneOffsetLabel } from "../../lib/timezones";
 import {
   addSubscriber,
   getPeople,
   getSubscribers,
   removeSubscriber,
+  sendSetupAssistantMessage,
   updateDosingSettings,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
+  type AssistantMessage,
   type Person,
   type Subscriber,
 } from "../../lib/api";
@@ -321,36 +323,43 @@ function SubscriberManager({ personId }: { personId: string }) {
   );
 }
 
-const SETUP_TIPS: { title: string; body: string }[] = [
-  {
-    title: "Thresholds",
-    body:
-      "Set critical low, safe low, safe high, and critical high in mg/dL. These come from your doctor, not a guess -- ask your care team what ranges they recommend. The rule is: critical low < safe low < safe high < critical high.",
-  },
-  {
-    title: "Alert phone numbers",
-    body:
-      "Add up to two phone numbers in E.164 format (e.g. +13055551234, with the country code). These numbers get WhatsApp alerts and, for lows, phone calls. Only people you trust should be added here.",
-  },
-  {
-    title: "Dosing formula",
-    body:
-      "Optional. Enter your carb ratio and correction factor exactly as prescribed by your doctor. This only powers a plain arithmetic calculator elsewhere in the app -- nothing here is AI-generated or a substitute for medical advice.",
-  },
-  {
-    title: "Timezone",
-    body:
-      "Controls what local time your reports and insights use. Click \"Use this device's timezone\" for the easiest option, or pick one manually if you're traveling.",
-  },
-  {
-    title: "Safe-range check-ins",
-    body:
-      "How often you get a WhatsApp message while glucose stays in the safe range, just so you know things are still working. Alerts for lows and highs happen immediately regardless of this setting.",
-  },
-];
+const GREETING: AssistantMessage = {
+  role: "assistant",
+  content:
+    "Hi, I'm the Glucoalarm setup assistant. Ask me anything about connecting Dexcom, alert phone numbers, thresholds, check-in cadence, billing, or how alerts work. I can't help with insulin dosing or general medical questions -- for those, talk to your care team or open a support ticket.",
+};
 
 function SetupGuideBot() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const [messages, setMessages] = useState<AssistantMessage[]>([GREETING]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || loading) return;
+    setError(null);
+    setInput("");
+    const next = [...messages, { role: "user" as const, content: text }];
+    setMessages(next);
+    setLoading(true);
+    try {
+      const { reply } = await sendSetupAssistantMessage(next);
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reach the assistant. Try again.");
+      setMessages((prev) => prev.slice(0, -1));
+      setInput(text);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <aside className="setup-bot">
@@ -359,31 +368,43 @@ function SetupGuideBot() {
           🤖
         </span>
         <div>
-          <h3 style={{ margin: 0 }}>Setup helper</h3>
+          <h3 style={{ margin: 0 }}>Setup assistant</h3>
           <p className="meta" style={{ margin: 0 }}>
-            Tap a section for tips
+            Ask a setup question
           </p>
         </div>
       </div>
-      {SETUP_TIPS.map((tip, i) => (
-        <div key={tip.title} className="setup-bot-item">
-          <button
-            type="button"
-            className="setup-bot-question"
-            onClick={() => setOpenIndex(openIndex === i ? null : i)}
-          >
-            {tip.title}
-            <span aria-hidden="true">{openIndex === i ? "−" : "+"}</span>
+
+      <div className="setup-bot-chat">
+        {messages.map((m, i) => (
+          <div key={i} className={`setup-bot-bubble setup-bot-bubble-${m.role}`}>
+            {m.content}
+          </div>
+        ))}
+        {loading && <div className="setup-bot-bubble setup-bot-bubble-assistant">Thinking...</div>}
+        <div ref={bottomRef} />
+      </div>
+
+      <form onSubmit={onSubmit} style={{ marginTop: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="e.g. How do I add a second phone number?"
+            disabled={loading}
+            style={{ flex: 1 }}
+          />
+          <button type="submit" disabled={loading || !input.trim()}>
+            Send
           </button>
-          {openIndex === i && <p className="meta setup-bot-answer">{tip.body}</p>}
         </div>
-      ))}
-      <p className="meta" style={{ marginTop: "1rem" }}>
-        Need more help? Visit the{" "}
-        <a href="/docs" target="_blank" rel="noreferrer">
-          documentation
-        </a>{" "}
-        or <a href="/support">open a support ticket</a>.
+        {error && <p className="meta">{error}</p>}
+      </form>
+
+      <p className="meta" style={{ marginTop: "0.75rem" }}>
+        See the full <a href="/docs" target="_blank" rel="noreferrer">documentation</a> or{" "}
+        <a href="/support">open a support ticket</a>.
       </p>
     </aside>
   );

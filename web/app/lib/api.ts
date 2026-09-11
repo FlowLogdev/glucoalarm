@@ -306,6 +306,15 @@ export function replyToTicket(id: number, message: string): Promise<{ ok: true }
   return apiFetch<{ ok: true }>(`/support/tickets/${id}/reply`, { method: "POST", body: JSON.stringify({ message }) });
 }
 
+export interface AssistantMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export function sendSetupAssistantMessage(messages: AssistantMessage[]): Promise<{ reply: string }> {
+  return apiFetch<{ reply: string }>("/setup-assistant", { method: "POST", body: JSON.stringify({ messages }) });
+}
+
 export function updateTickerInterval(personId: string, minutes: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>("/settings/ticker-interval", {
     method: "POST",

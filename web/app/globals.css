@@ -649,31 +649,33 @@ section + section {
   border: 1px solid var(--border);
 }
 
-.setup-bot-item {
-  border-top: 1px solid var(--border);
-}
-
-.setup-bot-item:first-of-type {
-  border-top: none;
-}
-
-.setup-bot-question {
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 0.9rem;
-  padding: 0.65rem 0;
+.setup-bot-chat {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 0.15rem;
 }
 
-.setup-bot-answer {
-  padding-bottom: 0.75rem;
+.setup-bot-bubble {
+  font-size: 0.85rem;
   line-height: 1.5;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  max-width: 92%;
+}
+
+.setup-bot-bubble-assistant {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+}
+
+.setup-bot-bubble-user {
+  background: var(--status-green);
+  color: #04140b;
+  align-self: flex-end;
 }
 
 @media (max-width: 900px) {
