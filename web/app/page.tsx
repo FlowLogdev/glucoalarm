@@ -11,9 +11,14 @@ export default function MarketingPage() {
           <a href="/support">Support</a>
           <a href="/contact">Contact</a>
         </div>
-        <a className="btn-primary" href="/signup">
-          Sign up
-        </a>
+        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center" }}>
+          <a href="/login" style={{ color: "var(--text-dim)", fontSize: "0.9rem", textDecoration: "none" }}>
+            Log in
+          </a>
+          <a className="btn-primary" href="/signup">
+            Sign up
+          </a>
+        </div>
       </nav>
 
       <section className="marketing-hero">
@@ -125,6 +130,7 @@ export default function MarketingPage() {
         <div className="marketing-footer-inner">
           <span>Glucoalarm</span>
           <div style={{ display: "flex", gap: "1.5rem" }}>
+            <a href="/login">Log in</a>
             <a href="/signup">Pricing</a>
             <a href="/docs">Docs</a>
             <a href="/support">Support</a>
