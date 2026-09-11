@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   addSubscriber,
+  checkLoggedIn,
   completeSignup,
   connectDexcom,
+  getPeople,
   updateThresholds,
   updateTickerInterval,
 } from "../lib/api";
@@ -255,12 +257,46 @@ function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => 
 
 function OnboardingFlow() {
   const params = useSearchParams();
+  const router = useRouter();
   const sessionId = params.get("session_id");
-  const [step, setStep] = useState<Step>("account");
+  const [step, setStep] = useState<Step>(sessionId ? "account" : "dexcom");
   const [personId, setPersonId] = useState<string | null>(null);
+  // Undetermined until the resume check (or lack of one) resolves, so we
+  // don't flash the "missing session" message for a logged-in customer
+  // resuming an abandoned signup.
+  const [resumeChecked, setResumeChecked] = useState(!!sessionId);
+  const [resumeError, setResumeError] = useState(false);
 
-  if (!sessionId) {
-    return <p className="meta">Missing checkout session. Start over from <a href="/signup">signup</a>.</p>;
+  useEffect(() => {
+    if (sessionId) return; // fresh post-checkout flow, nothing to resume
+    checkLoggedIn().then(async (loggedIn) => {
+      if (!loggedIn) {
+        setResumeError(true);
+        setResumeChecked(true);
+        return;
+      }
+      // Already has a monitored person connected -- onboarding's job is
+      // done; Settings covers everything from here.
+      const people = await getPeople().catch(() => []);
+      if (people.length > 0) {
+        router.replace("/dashboard");
+        return;
+      }
+      setResumeChecked(true);
+    });
+  }, [sessionId, router]);
+
+  if (!resumeChecked) {
+    return <p className="meta">Loading...</p>;
+  }
+
+  if (resumeError) {
+    return (
+      <p className="meta">
+        Missing checkout session. <a href="/login">Log in</a> to resume a signup already in
+        progress, or start over from <a href="/signup">signup</a>.
+      </p>
+    );
   }
 
   return (
@@ -270,7 +306,7 @@ function OnboardingFlow() {
         Step {["account", "dexcom", "contacts", "thresholds"].indexOf(step) + 1} of 4
       </p>
       <div className="card">
-        {step === "account" && <AccountStep sessionId={sessionId} onDone={() => setStep("dexcom")} />}
+        {step === "account" && sessionId && <AccountStep sessionId={sessionId} onDone={() => setStep("dexcom")} />}
         {step === "dexcom" && (
           <DexcomStep
             onDone={(id) => {

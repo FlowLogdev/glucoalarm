@@ -209,6 +209,24 @@ export default function DashboardPage() {
     );
   }
 
+  if (people.length === 0) {
+    return (
+      <section>
+        <h1>Dashboard</h1>
+        <div className="card" style={{ maxWidth: 480 }}>
+          <h3 style={{ marginTop: 0 }}>Finish setting up</h3>
+          <p className="meta">
+            Your account is created, but you haven&apos;t connected Dexcom yet. Pick up where you
+            left off to start monitoring.
+          </p>
+          <a className="btn-primary" href="/onboarding">
+            Finish setup
+          </a>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section>
       <h1>Dashboard</h1>
