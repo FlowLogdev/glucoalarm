@@ -1,5 +1,6 @@
 import { createCheckoutSession, retrieveCheckoutSession } from "./lib/stripe";
 import { hashPassword } from "./lib/password";
+import { verifyPendingGoogleSignup } from "./lib/google-oauth";
 import { createSession } from "./auth";
 import { encrypt } from "./lib/crypto";
 import { DexcomShareClient, DexcomApiError, DexcomSessionError } from "./lib/dexcom-client-share";
@@ -73,6 +74,73 @@ export async function postSignupComplete(env: Env, request: Request, now: number
   await env.DB
     .prepare(`INSERT INTO admins (id, email, password_hash, is_super_admin, customer_id, created_at) VALUES (?, ?, ?, 0, ?, ?)`)
     .bind(adminId, email, passwordHash, customerId, now)
+    .run();
+
+  const { sessionId, expiresAt } = await createSession(env, adminId, now);
+  return jsonResponse({ sessionId, expiresAt }, 201);
+}
+
+function randomUnusablePassword(): string {
+  // Google-authenticated admins never log in with a password, but
+  // password_hash is NOT NULL -- this fills it with something no plaintext
+  // login attempt could ever match, same idea as doctors.ts's invite flow.
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0")).join("");
+}
+
+/**
+ * Sibling to postSignupComplete for Google-originated signups: the email
+ * was already verified by Google before Checkout even started (see
+ * src/google-auth.ts), so this only needs the display name -- no
+ * email/password fields, and no way to un-verify what Google already
+ * confirmed. Payment is still verified the same way as the password flow
+ * before any row is created.
+ */
+export async function postSignupCompleteGoogle(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{ session_id?: string; google_token?: string; display_name?: string }>();
+  if (!body.session_id || !body.google_token || !body.display_name) {
+    return jsonResponse({ error: "session_id, google_token, and display_name are required" }, 400);
+  }
+
+  const pending = await verifyPendingGoogleSignup(env, body.google_token, now);
+  if (!pending) {
+    return jsonResponse({ error: "google_token_expired" }, 400);
+  }
+
+  const stripeSession = await retrieveCheckoutSession(env, body.session_id);
+  if (!stripeSession || !["paid", "no_payment_required"].includes(stripeSession.payment_status)) {
+    return jsonResponse({ error: "payment_not_confirmed" }, 402);
+  }
+
+  const email = pending.email.toLowerCase().trim();
+  const existingAdmin = await env.DB.prepare(`SELECT id FROM admins WHERE email = ?`).bind(email).first();
+  if (existingAdmin) {
+    return jsonResponse({ error: "email_already_registered" }, 409);
+  }
+
+  const customerId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
+  const passwordHash = await hashPassword(randomUnusablePassword());
+
+  try {
+    await env.DB
+      .prepare(
+        `INSERT INTO customers (id, display_name, created_at, stripe_customer_id, stripe_subscription_id, subscription_status, stripe_checkout_session_id)
+         VALUES (?, ?, ?, ?, ?, 'active', ?)`
+      )
+      .bind(customerId, body.display_name, now, stripeSession.customer, stripeSession.subscription, stripeSession.id)
+      .run();
+  } catch (err) {
+    console.error("postSignupCompleteGoogle: customer insert failed (likely already used):", err);
+    return jsonResponse({ error: "session_already_used" }, 409);
+  }
+
+  await env.DB
+    .prepare(
+      `INSERT INTO admins (id, email, password_hash, is_super_admin, customer_id, created_at, auth_provider, google_sub)
+       VALUES (?, ?, ?, 0, ?, ?, 'google', ?)`
+    )
+    .bind(adminId, email, passwordHash, customerId, now, pending.sub)
     .run();
 
   const { sessionId, expiresAt } = await createSession(env, adminId, now);

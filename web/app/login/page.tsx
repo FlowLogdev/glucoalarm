@@ -77,6 +77,10 @@ function LoginForm() {
             </button>
             {error && <p className="meta">{error}</p>}
           </form>
+          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>or</p>
+          <a className="btn-secondary" href="/api/auth/google/start?intent=login" style={{ display: "block", textAlign: "center" }}>
+            Continue with Google
+          </a>
           <p className="meta" style={{ marginTop: "1.5rem" }}>
             New here? <a href="/signup">Start your 7-day free trial</a>
           </p>

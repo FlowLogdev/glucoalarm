@@ -6,6 +6,7 @@ import {
   addSubscriber,
   checkLoggedIn,
   completeSignup,
+  completeSignupGoogle,
   connectDexcom,
   getPeople,
   updateThresholds,
@@ -56,6 +57,51 @@ function AccountStep({ sessionId, onDone }: { sessionId: string; onDone: () => v
           minLength={8}
           required
         />
+      </label>
+      <button type="submit" disabled={loading}>
+        {loading ? "Creating account..." : "Continue"}
+      </button>
+      {error && <p className="meta">{error}</p>}
+    </form>
+  );
+}
+
+/** Google-originated signup: email is already verified by Google, so this
+ *  step only needs the household display name before the account is
+ *  created (see postSignupCompleteGoogle in src/signup.ts). */
+function AccountStepGoogle({
+  sessionId,
+  googleToken,
+  onDone,
+}: {
+  sessionId: string;
+  googleToken: string;
+  onDone: () => void;
+}) {
+  const [displayName, setDisplayName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await completeSignupGoogle(sessionId, googleToken, displayName);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit}>
+      <p className="meta">Payment confirmed. Signed in with Google -- just name your account to continue.</p>
+      <label>
+        Your name or household name
+        <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
       </label>
       <button type="submit" disabled={loading}>
         {loading ? "Creating account..." : "Continue"}
@@ -259,6 +305,7 @@ function OnboardingFlow() {
   const params = useSearchParams();
   const router = useRouter();
   const sessionId = params.get("session_id");
+  const googleToken = params.get("google_token");
   const [step, setStep] = useState<Step>(sessionId ? "account" : "dexcom");
   const [personId, setPersonId] = useState<string | null>(null);
   // Undetermined until the resume check (or lack of one) resolves, so we
@@ -306,7 +353,12 @@ function OnboardingFlow() {
         Step {["account", "dexcom", "contacts", "thresholds"].indexOf(step) + 1} of 4
       </p>
       <div className="card">
-        {step === "account" && sessionId && <AccountStep sessionId={sessionId} onDone={() => setStep("dexcom")} />}
+        {step === "account" && sessionId && googleToken && (
+          <AccountStepGoogle sessionId={sessionId} googleToken={googleToken} onDone={() => setStep("dexcom")} />
+        )}
+        {step === "account" && sessionId && !googleToken && (
+          <AccountStep sessionId={sessionId} onDone={() => setStep("dexcom")} />
+        )}
         {step === "dexcom" && (
           <DexcomStep
             onDone={(id) => {

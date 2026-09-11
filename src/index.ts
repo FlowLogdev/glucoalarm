@@ -3,6 +3,7 @@ import { handleApi } from "./api";
 import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { checkAndGenerateReports } from "./reports-generator";
+import { handleGoogleAuthStart, handleGoogleAuthCallback } from "./google-auth";
 import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
@@ -31,6 +32,16 @@ export default {
     // request signature instead of our bearer token.
     if (request.method === "POST" && url0.pathname === "/api/stripe/webhook") {
       return handleStripeWebhook(request, env, Math.floor(Date.now() / 1000));
+    }
+
+    // Google OAuth -- public by necessity (Google redirects the browser
+    // here directly, no bearer token available), protected by the signed
+    // `state` param instead. Same reasoning as the Twilio/Stripe webhooks.
+    if (request.method === "GET" && url0.pathname === "/api/auth/google/start") {
+      return handleGoogleAuthStart(request, env, Math.floor(Date.now() / 1000));
+    }
+    if (request.method === "GET" && url0.pathname === "/api/auth/google/callback") {
+      return handleGoogleAuthCallback(request, env, Math.floor(Date.now() / 1000));
     }
 
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));

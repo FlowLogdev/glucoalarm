@@ -55,6 +55,10 @@ export default function SignupPage() {
           <button className="btn-primary" onClick={onSubscribe} disabled={loading} style={{ width: "100%", marginTop: "1rem" }}>
             {loading ? "Starting checkout..." : "Start free trial"}
           </button>
+          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>or</p>
+          <a className="btn-secondary" href="/api/auth/google/start?intent=signup" style={{ display: "block", textAlign: "center", width: "100%" }}>
+            Sign up with Google
+          </a>
           {error && <p className="meta">{error}</p>}
         </div>
 

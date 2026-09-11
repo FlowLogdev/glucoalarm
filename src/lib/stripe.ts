@@ -10,22 +10,29 @@ export class StripeError extends Error {}
 export async function createCheckoutSession(
   env: Env,
   successUrl: string,
-  cancelUrl: string
+  cancelUrl: string,
+  customerEmail?: string
 ): Promise<{ id: string; url: string }> {
+  const params = new URLSearchParams({
+    mode: "subscription",
+    "line_items[0][price]": env.STRIPE_PRICE_ID,
+    "line_items[0][quantity]": "1",
+    "subscription_data[trial_period_days]": "7",
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+  // Prefills and locks the email field for Google-originated signups,
+  // where we've already verified the address via Google -- ordinary
+  // signups leave this unset and let the customer type it in Checkout.
+  if (customerEmail) params.set("customer_email", customerEmail);
+
   const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
     headers: {
       Authorization: "Basic " + btoa(`${env.STRIPE_SECRET_KEY}:`),
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({
-      mode: "subscription",
-      "line_items[0][price]": env.STRIPE_PRICE_ID,
-      "line_items[0][quantity]": "1",
-      "subscription_data[trial_period_days]": "7",
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    }),
+    body: params,
   });
 
   if (!res.ok) {

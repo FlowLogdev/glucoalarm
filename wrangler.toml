@@ -38,6 +38,10 @@ PUBLIC_WEB_URL = "https://glucoalarm.com"
 # Set after creating the flat monthly subscription Price in the Stripe
 # Dashboard (Product catalog). Not a secret -- Price IDs aren't sensitive.
 STRIPE_PRICE_ID = "price_1UELdJHnnXzltzilfl0yGwS0"
+# OAuth 2.0 Client ID from a Google Cloud Console project (APIs & Services >
+# Credentials). Not a secret -- Client IDs are meant to be public, they're
+# embedded in the browser's redirect URL to Google.
+GOOGLE_CLIENT_ID = ""
 
 # Secrets (not stored here — set via `wrangler secret put`):
 #   DEXCOM_ENC_KEY         base64 32-byte AES-GCM key, encrypts dexcom_password at rest
@@ -53,3 +57,5 @@ STRIPE_PRICE_ID = "price_1UELdJHnnXzltzilfl0yGwS0"
 #                          https://<this worker>/api/stripe/webhook (whsec_...)
 #   RESEND_API_KEY         from resend.com -- the flowlog.dev domain must be
 #                          verified there before support@flowlog.dev can send
+#   GOOGLE_CLIENT_SECRET      from the same Google Cloud Console OAuth Client as GOOGLE_CLIENT_ID
+#   GOOGLE_OAUTH_STATE_SECRET any long random string -- HMAC key for signing OAuth state/pending-signup tokens

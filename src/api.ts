@@ -7,7 +7,7 @@ import { getStatus, restartService } from "./status";
 import { postDoctorInvite, getDoctors, deleteDoctor } from "./doctors";
 import { getReportCsv } from "./csv";
 import { generateInsight, getCachedInsight } from "./insights";
-import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
+import { postSignupCheckout, postSignupComplete, postSignupCompleteGoogle, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
 import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
@@ -444,6 +444,7 @@ const PUBLIC_ROUTES = new Set([
   "POST /api/auth/login",
   "POST /api/signup/checkout",
   "POST /api/signup/complete",
+  "POST /api/signup/complete-google",
   "POST /api/support/public-tickets",
 ]);
 
@@ -493,6 +494,10 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
 
   if (method === "POST" && path === "/api/signup/complete") {
     return postSignupComplete(env, request, now);
+  }
+
+  if (method === "POST" && path === "/api/signup/complete-google") {
+    return postSignupCompleteGoogle(env, request, now);
   }
 
   if (method === "POST" && path === "/api/support/public-tickets") {

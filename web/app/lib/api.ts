@@ -524,3 +524,21 @@ export async function completeSignup(
     throw new Error(messages[body.error as string] ?? "Couldn't complete signup. Try again.");
   }
 }
+
+export async function completeSignupGoogle(sessionId: string, googleToken: string, displayName: string): Promise<void> {
+  const res = await fetch("/api/signup/complete-google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, google_token: googleToken, display_name: displayName }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const messages: Record<string, string> = {
+      payment_not_confirmed: "We couldn't confirm your payment yet. Try refreshing in a moment.",
+      google_token_expired: "This Google sign-in expired -- start over from signup.",
+      email_already_registered: "That email is already registered -- log in instead.",
+      session_already_used: "This checkout session was already used to create an account.",
+    };
+    throw new Error(messages[body.error as string] ?? "Couldn't complete signup. Try again.");
+  }
+}
