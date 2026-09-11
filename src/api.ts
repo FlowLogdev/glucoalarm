@@ -4,6 +4,8 @@ import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { getA1CEstimates } from "./a1c";
 import { postSetupAssistant } from "./setup-assistant";
 import { getStatus, restartService } from "./status";
+import { postDoctorInvite, getDoctors, deleteDoctor } from "./doctors";
+import { getReportCsv } from "./csv";
 import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
@@ -29,6 +31,12 @@ async function assertOwnsSubscriber(env: Env, admin: Admin, subscriberId: string
     .bind(subscriberId)
     .first<{ customer_id: string | null }>();
   return !!row && row.customer_id === admin.customer_id;
+}
+
+/** Doctors are read-only: invited by a customer to view data, never to change it. */
+function requireWriteAccess(admin: Admin): Response | null {
+  if (admin.role === "doctor") return jsonResponse({ error: "forbidden", detail: "Doctor accounts are read-only." }, 403);
+  return null;
 }
 
 /** Same ownership check, but by insulin_log row id. */
@@ -494,6 +502,8 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/people") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postPeople(env, request, a, now);
   }
 
@@ -519,6 +529,17 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     return getReportRoute(env, personId, url.searchParams.get("period"), now);
   }
 
+  if (method === "GET" && path === "/api/reports/csv") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    const periodParam = url.searchParams.get("period");
+    const periodKey = (periodParam && periodParam in REPORT_PERIODS ? periodParam : "week") as ReportPeriod;
+    const csv = await getReportCsv(env, personId, periodKey, now);
+    if (!csv) return jsonResponse({ error: "person_not_found" }, 404);
+    return csv;
+  }
+
   if (method === "POST" && path === "/api/setup-assistant") {
     return postSetupAssistant(env, request);
   }
@@ -533,6 +554,8 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/restart-service") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     const body = await request.json<{ person_id?: string }>();
     if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
     if (!(await assertOwnsPerson(env, a, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
@@ -558,18 +581,26 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/settings/thresholds") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postThresholds(env, request, a);
   }
 
   if (method === "POST" && path === "/api/settings/dosing") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postDosingSettings(env, request, a);
   }
 
   if (method === "POST" && path === "/api/settings/timezone") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postTimezone(env, request, a);
   }
 
   if (method === "POST" && path === "/api/settings/ticker-interval") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postTickerInterval(env, request, a);
   }
 
@@ -585,17 +616,23 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/subscribers") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postSubscriber(env, request, a);
   }
 
   const subscriberDeleteMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "DELETE" && subscriberDeleteMatch) {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     if (!(await assertOwnsSubscriber(env, a, subscriberDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return deleteSubscriber(env, subscriberDeleteMatch[1]);
   }
 
   const subscriberPatchMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
   if (method === "PATCH" && subscriberPatchMatch) {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     if (!(await assertOwnsSubscriber(env, a, subscriberPatchMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return patchSubscriber(env, subscriberPatchMatch[1], request);
   }
@@ -609,11 +646,15 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/insulin-log") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postInsulinLog(env, request, a, now);
   }
 
   const insulinLogDeleteMatch = /^\/api\/insulin-log\/(\w+)$/.exec(path);
   if (method === "DELETE" && insulinLogDeleteMatch) {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     if (!(await assertOwnsInsulinLogEntry(env, a, insulinLogDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
     return deleteInsulinLog(env, insulinLogDeleteMatch[1]);
   }
@@ -623,6 +664,8 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/billing/portal") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
     return postBillingPortal(env, a, request);
   }
 
@@ -647,6 +690,23 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   const ticketReplyMatch = /^\/api\/support\/tickets\/(\w+)\/reply$/.exec(path);
   if (method === "POST" && ticketReplyMatch) {
     return postTicketReply(env, a, ticketReplyMatch[1], request, now);
+  }
+
+  if (method === "GET" && path === "/api/doctors") {
+    return getDoctors(env, a);
+  }
+
+  if (method === "POST" && path === "/api/doctors/invite") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    return postDoctorInvite(env, a, request, now);
+  }
+
+  const doctorDeleteMatch = /^\/api\/doctors\/(\S+)$/.exec(path);
+  if (method === "DELETE" && doctorDeleteMatch) {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    return deleteDoctor(env, a, doctorDeleteMatch[1]);
   }
 
   return jsonResponse({ error: "not_found" }, 404);

@@ -23,10 +23,10 @@ async function forward(request: NextRequest, path: string[]): Promise<NextRespon
 
   const res = await fetch(workerUrl, init);
   const body = await res.text();
-  return new NextResponse(body, {
-    status: res.status,
-    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
-  });
+  const headers: Record<string, string> = { "Content-Type": res.headers.get("Content-Type") ?? "application/json" };
+  const disposition = res.headers.get("Content-Disposition");
+  if (disposition) headers["Content-Disposition"] = disposition;
+  return new NextResponse(body, { status: res.status, headers });
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {

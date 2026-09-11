@@ -1,20 +1,23 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getAllTimezones, timezoneOffsetLabel } from "../../lib/timezones";
+import { GlucoalarmBot } from "../../lib/GlucoalarmBot";
 import {
   addSubscriber,
+  getDoctors,
   getPeople,
   getServiceStatus,
   getSubscribers,
+  inviteDoctor,
+  removeDoctor,
   removeSubscriber,
   restartService,
-  sendSetupAssistantMessage,
   updateDosingSettings,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
-  type AssistantMessage,
+  type Doctor,
   type Person,
   type ServiceStatus,
   type Subscriber,
@@ -319,6 +322,86 @@ function ServiceStatusCard({ person }: { person: Person }) {
   );
 }
 
+function DoctorAccessCard() {
+  const [doctors, setDoctors] = useState<Doctor[] | null>(null);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  function refresh() {
+    getDoctors()
+      .then(setDoctors)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }
+
+  useEffect(refresh, []);
+
+  async function onInvite(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setStatus(null);
+    setLoading(true);
+    try {
+      await inviteDoctor(email, name);
+      setEmail("");
+      setName("");
+      setStatus("Invitation sent.");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to invite doctor");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onRemove(id: string) {
+    setError(null);
+    try {
+      await removeDoctor(id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove");
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Doctor access</h3>
+      <p className="meta">
+        Invite your doctor for read-only access to readings, reports, and CSV downloads. They
+        won&apos;t be able to change any settings, contacts, or billing.
+      </p>
+      {doctors?.map((d) => (
+        <div className="subscriber-row" key={d.id}>
+          <span>{d.email}</span>
+          <button className="danger" onClick={() => onRemove(d.id)}>
+            Remove
+          </button>
+        </div>
+      ))}
+      {doctors?.length === 0 && <p className="meta">No doctors invited yet.</p>}
+
+      <form onSubmit={onInvite} style={{ marginTop: "1rem" }}>
+        <label>
+          Doctor&apos;s name
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Smith" />
+        </label>
+        <label>
+          Doctor&apos;s email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+        <button type="submit" disabled={loading}>
+          {loading ? "Sending invite..." : "Invite doctor"}
+        </button>
+      </form>
+      {status && <p className="meta">{status}</p>}
+      {error && <p className="meta">{error}</p>}
+    </div>
+  );
+}
+
 function SubscriberManager({ personId }: { personId: string }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -392,93 +475,6 @@ function SubscriberManager({ personId }: { personId: string }) {
   );
 }
 
-const GREETING: AssistantMessage = {
-  role: "assistant",
-  content:
-    "Hi, I'm the Glucoalarm setup assistant. Ask me anything about connecting Dexcom, alert phone numbers, thresholds, check-in cadence, billing, or how alerts work. I can't help with insulin dosing or general medical questions -- for those, talk to your care team or open a support ticket.",
-};
-
-function SetupGuideBot() {
-  const [messages, setMessages] = useState<AssistantMessage[]>([GREETING]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || loading) return;
-    setError(null);
-    setInput("");
-    const next = [...messages, { role: "user" as const, content: text }];
-    setMessages(next);
-    setLoading(true);
-    try {
-      const { reply } = await sendSetupAssistantMessage(next);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't reach the assistant. Try again.");
-      setMessages((prev) => prev.slice(0, -1));
-      setInput(text);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <aside className="setup-bot">
-      <div className="setup-bot-header">
-        <span className="setup-bot-avatar" aria-hidden="true">
-          🤖
-        </span>
-        <div>
-          <h3 style={{ margin: 0 }}>Setup assistant</h3>
-          <p className="meta" style={{ margin: 0 }}>
-            Ask a setup question
-          </p>
-        </div>
-      </div>
-
-      <div className="setup-bot-chat">
-        {messages.map((m, i) => (
-          <div key={i} className={`setup-bot-bubble setup-bot-bubble-${m.role}`}>
-            {m.content}
-          </div>
-        ))}
-        {loading && <div className="setup-bot-bubble setup-bot-bubble-assistant">Thinking...</div>}
-        <div ref={bottomRef} />
-      </div>
-
-      <form onSubmit={onSubmit} style={{ marginTop: "0.75rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g. How do I add a second phone number?"
-            disabled={loading}
-            style={{ flex: 1 }}
-          />
-          <button type="submit" disabled={loading || !input.trim()}>
-            Send
-          </button>
-        </div>
-        {error && <p className="meta">{error}</p>}
-      </form>
-
-      <p className="meta" style={{ marginTop: "0.75rem" }}>
-        See the full <a href="/docs" target="_blank" rel="noreferrer">documentation</a> or{" "}
-        <a href="/support">open a support ticket</a>.
-      </p>
-    </aside>
-  );
-}
-
 export default function SettingsPage() {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -526,8 +522,14 @@ export default function SettingsPage() {
             </div>
           </section>
         ))}
+        <section>
+          <h2>Access</h2>
+          <div className="card-grid">
+            <DoctorAccessCard />
+          </div>
+        </section>
       </div>
-      <SetupGuideBot />
+      <GlucoalarmBot subtitle="Ask a setup question" />
     </div>
   );
 }

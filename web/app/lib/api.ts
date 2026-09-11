@@ -330,6 +330,27 @@ export function sendSetupAssistantMessage(messages: AssistantMessage[]): Promise
   return apiFetch<{ reply: string }>("/setup-assistant", { method: "POST", body: JSON.stringify({ messages }) });
 }
 
+export interface Doctor {
+  id: string;
+  email: string;
+  created_at: number;
+}
+
+export function getDoctors(): Promise<Doctor[]> {
+  return apiFetch<Doctor[]>("/doctors");
+}
+
+export function inviteDoctor(email: string, name: string): Promise<{ id: string; email: string }> {
+  return apiFetch<{ id: string; email: string }>("/doctors/invite", {
+    method: "POST",
+    body: JSON.stringify({ email, name }),
+  });
+}
+
+export function removeDoctor(id: string): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/doctors/${id}`, { method: "DELETE" });
+}
+
 export function updateTickerInterval(personId: string, minutes: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>("/settings/ticker-interval", {
     method: "POST",

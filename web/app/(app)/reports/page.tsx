@@ -14,6 +14,7 @@ import {
 } from "../../lib/api";
 import { formatDateTime, formatDuration, statusColor, statusLabel } from "../../lib/format";
 import { InsightCard } from "../../lib/InsightCard";
+import { GlucoalarmBot } from "../../lib/GlucoalarmBot";
 
 const PERIODS: { key: ReportPeriod; label: string }[] = [
   { key: "week", label: "Weekly" },
@@ -99,7 +100,12 @@ function PersonReport({ person, period }: { person: Person; period: ReportPeriod
 
   return (
     <section>
-      <h2>{person.name}</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" }}>
+        <h2 style={{ margin: 0 }}>{person.name}</h2>
+        <a className="history-link" href={`/api/proxy/reports/csv?person_id=${encodeURIComponent(person.id)}&period=${period}`} download>
+          Download CSV →
+        </a>
+      </div>
       <div className="card-grid" style={{ marginBottom: "1rem" }}>
         <A1CCard person={person} />
       </div>
@@ -197,18 +203,21 @@ export default function ReportsPage() {
   if (!people) return <p className="meta">Loading…</p>;
 
   return (
-    <>
-      <h1>Reports</h1>
-      <div className="range-toggle">
-        {PERIODS.map((p) => (
-          <button key={p.key} className={period === p.key ? "active" : ""} onClick={() => setPeriod(p.key)}>
-            {p.label}
-          </button>
+    <div className="settings-layout">
+      <div>
+        <h1>Reports</h1>
+        <div className="range-toggle">
+          {PERIODS.map((p) => (
+            <button key={p.key} className={period === p.key ? "active" : ""} onClick={() => setPeriod(p.key)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {people.map((person) => (
+          <PersonReport key={person.id} person={person} period={period} />
         ))}
       </div>
-      {people.map((person) => (
-        <PersonReport key={person.id} person={person} period={period} />
-      ))}
-    </>
+      <GlucoalarmBot subtitle="Ask about your reports" />
+    </div>
   );
 }

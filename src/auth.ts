@@ -8,6 +8,7 @@ export interface Admin {
   email: string;
   is_super_admin: number;
   customer_id: string | null;
+  role: "owner" | "doctor";
 }
 
 export async function createSession(
@@ -49,7 +50,7 @@ export async function logout(env: Env, sessionId: string): Promise<void> {
 export async function getSessionAdmin(env: Env, sessionId: string, now: number): Promise<Admin | null> {
   const row = await env.DB
     .prepare(
-      `SELECT admins.id as id, admins.email as email, admins.is_super_admin as is_super_admin, admins.customer_id as customer_id, auth_sessions.expires_at as expires_at
+      `SELECT admins.id as id, admins.email as email, admins.is_super_admin as is_super_admin, admins.customer_id as customer_id, admins.role as role, auth_sessions.expires_at as expires_at
        FROM auth_sessions JOIN admins ON admins.id = auth_sessions.admin_id
        WHERE auth_sessions.id = ?`
     )
@@ -57,7 +58,7 @@ export async function getSessionAdmin(env: Env, sessionId: string, now: number):
     .first<Admin & { expires_at: number }>();
 
   if (!row || row.expires_at < now) return null;
-  return { id: row.id, email: row.email, is_super_admin: row.is_super_admin, customer_id: row.customer_id };
+  return { id: row.id, email: row.email, is_super_admin: row.is_super_admin, customer_id: row.customer_id, role: row.role };
 }
 
 export function bearerToken(request: Request): string | null {
