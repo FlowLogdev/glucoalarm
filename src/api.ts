@@ -10,6 +10,8 @@ import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
 import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
+import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
+import { generateReport, determineDuePeriods, type ReportPerson } from "./reports-generator";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
@@ -575,6 +577,111 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     const estimates = await getA1CEstimates(env, personId, now);
     if (!estimates) return jsonResponse({ error: "person_not_found" }, 404);
     return jsonResponse(estimates);
+  }
+
+  if (method === "GET" && path === "/api/a1c-records") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    return getA1CRecords(env, personId);
+  }
+
+  if (method === "POST" && path === "/api/a1c-records") {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    const body = await request.json<{ person_id?: string; a1c_value?: number; measured_at?: number; source?: string; notes?: string }>();
+    if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
+    return postA1CRecord(env, body.person_id, body, now);
+  }
+
+  const a1cRecordDeleteMatch = /^\/api\/a1c-records\/(\w+)$/.exec(path);
+  if (method === "DELETE" && a1cRecordDeleteMatch) {
+    const writeGuard = requireWriteAccess(a);
+    if (writeGuard) return writeGuard;
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    return deleteA1CRecord(env, personId, a1cRecordDeleteMatch[1]);
+  }
+
+  if (method === "GET" && path === "/api/glucose-reports") {
+    const personId = url.searchParams.get("person_id");
+    const reportType = url.searchParams.get("type");
+    if (!personId || (reportType !== "weekly" && reportType !== "monthly")) {
+      return jsonResponse({ error: "person_id and type ('weekly' or 'monthly') are required" }, 400);
+    }
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    const limit = Math.min(24, Math.max(1, Number(url.searchParams.get("limit") ?? "1")));
+    const rows = await env.DB
+      .prepare(
+        `SELECT id, period_start, period_end, metrics, patterns, ai_analysis, data_coverage, status, generated_at
+         FROM glucose_reports WHERE person_id = ? AND report_type = ? ORDER BY period_end DESC LIMIT ?`
+      )
+      .bind(personId, reportType, limit)
+      .all<{
+        id: number;
+        period_start: number;
+        period_end: number;
+        metrics: string;
+        patterns: string | null;
+        ai_analysis: string | null;
+        data_coverage: string;
+        status: string;
+        generated_at: number;
+      }>();
+    const parsed = rows.results.map((r) => ({
+      id: r.id,
+      period_start: r.period_start,
+      period_end: r.period_end,
+      metrics: JSON.parse(r.metrics),
+      patterns: r.patterns ? JSON.parse(r.patterns) : null,
+      ai_analysis: r.ai_analysis ? JSON.parse(r.ai_analysis) : null,
+      data_coverage: JSON.parse(r.data_coverage),
+      status: r.status,
+      generated_at: r.generated_at,
+    }));
+    return jsonResponse(limit === 1 ? parsed[0] ?? null : parsed);
+  }
+
+  // Manual trigger for testing/support -- same operator-only spirit as
+  // /__poll, restricted to super-admins rather than any account owner
+  // since it can generate real reports (and a real WhatsApp notification)
+  // outside the normal daily schedule.
+  if (method === "POST" && path === "/api/reports/generate-now") {
+    if (!a.is_super_admin) return jsonResponse({ error: "forbidden" }, 403);
+    const body = await request.json<{
+      person_id?: string;
+      report_type?: "weekly" | "monthly";
+      period_start?: number;
+      period_end?: number;
+    }>();
+    if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+    const person = await env.DB
+      .prepare(`SELECT id, name, timezone, safe_low, safe_high, critical_low, critical_high FROM people WHERE id = ?`)
+      .bind(body.person_id)
+      .first<ReportPerson>();
+    if (!person) return jsonResponse({ error: "person_not_found" }, 404);
+    const timezone = person.timezone ?? "UTC";
+
+    // Explicit period override lets this be used to test/backfill any
+    // period on demand; without it, only whatever's actually due today
+    // (matching the real cron's behavior) is generated.
+    if (body.report_type && body.period_start != null && body.period_end != null) {
+      const outcome = await generateReport(env, person, body.report_type, body.period_start, body.period_end, now);
+      return jsonResponse({ results: [{ reportType: body.report_type, periodStart: body.period_start, periodEnd: body.period_end, ...outcome }] });
+    }
+
+    const due = determineDuePeriods(now, timezone);
+    if (due.length === 0) {
+      return jsonResponse({ error: "no_period_due_today", detail: "Today is not a week/month boundary in this person's timezone." }, 400);
+    }
+    const results = [];
+    for (const period of due) {
+      const outcome = await generateReport(env, person, period.reportType, period.periodStart, period.periodEnd, now);
+      results.push({ ...period, ...outcome });
+    }
+    return jsonResponse({ results });
   }
 
   if (method === "GET" && path === "/api/subscribers") {

@@ -2,11 +2,18 @@ import { pollAll } from "./poll";
 import { handleApi } from "./api";
 import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
+import { checkAndGenerateReports } from "./reports-generator";
 import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
 export default {
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Two independent cron entries (see wrangler.toml) -- the report-
+    // generation check never runs on the same tick as Dexcom polling.
+    if (event.cron === "0 4 * * *") {
+      ctx.waitUntil(checkAndGenerateReports(env, Math.floor(Date.now() / 1000)));
+      return;
+    }
     ctx.waitUntil(pollAll(env));
   },
 

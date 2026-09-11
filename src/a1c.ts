@@ -22,6 +22,16 @@ export interface A1CEstimate {
 }
 
 /**
+ * The GMI formula itself, factored out so report-stats.ts (weekly/monthly
+ * reports, arbitrary custom periods) can reuse it instead of re-deriving
+ * the constant -- same formula, same rounding, byte-identical output to
+ * what this file already computed inline.
+ */
+export function gmiFromAverage(avgMgdl: number): number {
+  return Math.round((3.31 + 0.02392 * avgMgdl) * 10) / 10;
+}
+
+/**
  * Estimates A1C from average CGM glucose using the Glucose Management
  * Indicator (GMI) formula -- GMI(%) = 3.31 + 0.02392 * mean_glucose_mgdl
  * (Bergenstal et al., 2018, Diabetes Care). This is the CGM-specific
@@ -51,7 +61,7 @@ export async function getA1CEstimates(env: Env, personId: string, now: number): 
       key: window.key,
       label: window.label,
       averageMgdl: hasEnough ? Math.round(avg) : null,
-      estimatedA1c: hasEnough ? Math.round((3.31 + 0.02392 * avg) * 10) / 10 : null,
+      estimatedA1c: hasEnough ? gmiFromAverage(avg) : null,
       readingCount: count,
     });
   }

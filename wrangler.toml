@@ -6,7 +6,12 @@ compatibility_date = "2024-11-01"
 # Dexcom G7 itself only reports a new reading every ~5 min, so polling more
 # often than that is pure waste (and was a major contributor to a D1
 # rows_read quota incident on 2026-09-07 — see migrations/0008).
-crons = ["*/5 * * * *"]
+#
+# The second entry (0 4 * * *) is a fully separate daily check for
+# weekly/monthly glucose report generation (src/reports-generator.ts) --
+# an O(people) scan, never touching the live Dexcom-polling path. Branched
+# on event.cron in src/index.ts's scheduled().
+crons = ["*/5 * * * *", "0 4 * * *"]
 
 [[d1_databases]]
 binding = "DB"
