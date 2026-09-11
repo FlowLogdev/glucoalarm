@@ -34,6 +34,18 @@ export interface TimezoneGroup {
   zones: string[];
 }
 
+/** e.g. "GMT-4" or "GMT+5:30", computed against today's date so DST is reflected. */
+export function timezoneOffsetLabel(zone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "shortOffset" }).formatToParts(
+      new Date()
+    );
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function getAllTimezones(): TimezoneGroup[] {
   let zones: string[];
   try {

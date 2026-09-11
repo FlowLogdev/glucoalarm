@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { getAllTimezones } from "../../lib/timezones";
+import { getAllTimezones, timezoneOffsetLabel } from "../../lib/timezones";
 import {
   addSubscriber,
   getPeople,
@@ -230,7 +230,7 @@ function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void
             <optgroup key={group.region} label={group.region}>
               {group.zones.map((zone) => (
                 <option key={zone} value={zone}>
-                  {zone.replace(/_/g, " ")}
+                  {zone.replace(/_/g, " ")} ({timezoneOffsetLabel(zone)})
                 </option>
               ))}
             </optgroup>
