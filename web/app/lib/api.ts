@@ -204,6 +204,95 @@ export function getA1CEstimates(personId: string): Promise<A1CEstimate[]> {
   return apiFetch<A1CEstimate[]>(`/a1c?person_id=${encodeURIComponent(personId)}`);
 }
 
+export interface A1CRecord {
+  id: number;
+  a1c_value: number;
+  measured_at: number;
+  source: string | null;
+  notes: string | null;
+}
+
+export function getA1CRecords(personId: string): Promise<A1CRecord[]> {
+  return apiFetch<A1CRecord[]>(`/a1c-records?person_id=${encodeURIComponent(personId)}`);
+}
+
+export function addA1CRecord(personId: string, a1cValue: number, measuredAt: number, source: string): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/a1c-records", {
+    method: "POST",
+    body: JSON.stringify({ person_id: personId, a1c_value: a1cValue, measured_at: measuredAt, source: source || null }),
+  });
+}
+
+export function removeA1CRecord(personId: string, id: number): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/a1c-records/${id}?person_id=${encodeURIComponent(personId)}`, { method: "DELETE" });
+}
+
+export interface GlucoseReportMetrics {
+  readingCount: number;
+  mean: number | null;
+  median: number | null;
+  min: number | null;
+  max: number | null;
+  stdev: number | null;
+  gmi: number | null;
+  timeInRangePct: number | null;
+  timeAboveRangePct: number | null;
+  timeBelowRangePct: number | null;
+}
+
+export interface GlucoseReportDataCoverage {
+  readingCount: number;
+  daysWithData: number;
+  expectedReadings: number;
+  coveragePct: number;
+  isLimited: boolean;
+  gmiReliable: boolean;
+}
+
+export interface GlucoseReportComparison {
+  metric: string;
+  current: number | null;
+  previous: number | null;
+  difference: number | null;
+  percentChange: number | null;
+  unit: "percentage_points" | "value";
+}
+
+export interface GlucoseReportPatterns {
+  dayPeriodBuckets: { period: string; readingCount: number; timeInRangePct: number | null; timeLowPct: number | null; timeHighPct: number | null; meanGlucose: number | null }[];
+  bestWorstDays: Record<string, { date: string; timeInRangePct: number | null; meanGlucose: number | null; stdev: number | null } | null>;
+  comparison: GlucoseReportComparison[] | null;
+  rateOfChangeFlags: { direction: string; hour: number; occurrences: number }[];
+  highEventCount: number;
+  lowEventCount: number;
+  events: { direction: string; startAt: number; endAt: number; durationSeconds: number; extremeValue: number }[];
+}
+
+export interface AIReportAnalysis {
+  summary: string;
+  positive_patterns: string[];
+  patterns_to_watch: string[];
+  discussion_points: string[];
+  questions_for_doctor: string[];
+  disclaimer: string;
+}
+
+export interface GlucoseReport {
+  id: number;
+  period_start: number;
+  period_end: number;
+  metrics: GlucoseReportMetrics;
+  patterns: GlucoseReportPatterns | null;
+  ai_analysis: AIReportAnalysis | null;
+  data_coverage: GlucoseReportDataCoverage;
+  status: string;
+  generated_at: number;
+}
+
+export async function getGlucoseReport(personId: string, type: "weekly" | "monthly"): Promise<GlucoseReport | null> {
+  return apiFetch<GlucoseReport | null>(`/glucose-reports?person_id=${encodeURIComponent(personId)}&type=${type}`);
+}
+
 export function getReport(personId: string, period: ReportPeriod): Promise<Report> {
   return apiFetch<Report>(`/reports?person_id=${encodeURIComponent(personId)}&period=${period}`);
 }
