@@ -157,7 +157,7 @@ function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }
   return (
     <form onSubmit={onSubmit}>
       <p className="meta">
-        Enter these exactly as prescribed by {person.name}&apos;s doctor. Used only for plain
+        Enter these exactly as prescribed by the patient&apos;s doctor. Used only for plain
         arithmetic on the Log page, never AI-generated. Leave blank to hide the calculation.
       </p>
       <label>
