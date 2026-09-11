@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getAllTimezones } from "../../lib/timezones";
 import {
   addSubscriber,
   getPeople,
@@ -201,6 +202,7 @@ function DosingForm({ person, onSaved }: { person: Person; onSaved: () => void }
 function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void }) {
   const [timezone, setTimezone] = useState(person.timezone ?? "");
   const [status, setStatus] = useState<string | null>(null);
+  const groups = useMemo(getAllTimezones, []);
 
   async function save(value: string) {
     setStatus(null);
@@ -221,8 +223,19 @@ function TimezoneForm({ person, onSaved }: { person: Person; onSaved: () => void
         whatever device last viewed Reports; override here if that's wrong (e.g. traveling).
       </p>
       <label>
-        IANA timezone (e.g. America/New_York)
-        <input type="text" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/New_York" />
+        Timezone
+        <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+          <option value="">Not set</option>
+          {groups.map((group) => (
+            <optgroup key={group.region} label={group.region}>
+              {group.zones.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone.replace(/_/g, " ")}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </label>
       <div style={{ display: "flex", gap: "0.5rem" }}>
         <button type="submit">Save</button>
@@ -308,6 +321,74 @@ function SubscriberManager({ personId }: { personId: string }) {
   );
 }
 
+const SETUP_TIPS: { title: string; body: string }[] = [
+  {
+    title: "Thresholds",
+    body:
+      "Set critical low, safe low, safe high, and critical high in mg/dL. These come from your doctor, not a guess -- ask your care team what ranges they recommend. The rule is: critical low < safe low < safe high < critical high.",
+  },
+  {
+    title: "Alert phone numbers",
+    body:
+      "Add up to two phone numbers in E.164 format (e.g. +13055551234, with the country code). These numbers get WhatsApp alerts and, for lows, phone calls. Only people you trust should be added here.",
+  },
+  {
+    title: "Dosing formula",
+    body:
+      "Optional. Enter your carb ratio and correction factor exactly as prescribed by your doctor. This only powers a plain arithmetic calculator elsewhere in the app -- nothing here is AI-generated or a substitute for medical advice.",
+  },
+  {
+    title: "Timezone",
+    body:
+      "Controls what local time your reports and insights use. Click \"Use this device's timezone\" for the easiest option, or pick one manually if you're traveling.",
+  },
+  {
+    title: "Safe-range check-ins",
+    body:
+      "How often you get a WhatsApp message while glucose stays in the safe range, just so you know things are still working. Alerts for lows and highs happen immediately regardless of this setting.",
+  },
+];
+
+function SetupGuideBot() {
+  const [openIndex, setOpenIndex] = useState<number | null>(0);
+
+  return (
+    <aside className="setup-bot">
+      <div className="setup-bot-header">
+        <span className="setup-bot-avatar" aria-hidden="true">
+          🤖
+        </span>
+        <div>
+          <h3 style={{ margin: 0 }}>Setup helper</h3>
+          <p className="meta" style={{ margin: 0 }}>
+            Tap a section for tips
+          </p>
+        </div>
+      </div>
+      {SETUP_TIPS.map((tip, i) => (
+        <div key={tip.title} className="setup-bot-item">
+          <button
+            type="button"
+            className="setup-bot-question"
+            onClick={() => setOpenIndex(openIndex === i ? null : i)}
+          >
+            {tip.title}
+            <span aria-hidden="true">{openIndex === i ? "−" : "+"}</span>
+          </button>
+          {openIndex === i && <p className="meta setup-bot-answer">{tip.body}</p>}
+        </div>
+      ))}
+      <p className="meta" style={{ marginTop: "1rem" }}>
+        Need more help? Visit the{" "}
+        <a href="/docs" target="_blank" rel="noreferrer">
+          documentation
+        </a>{" "}
+        or <a href="/support">open a support ticket</a>.
+      </p>
+    </aside>
+  );
+}
+
 export default function SettingsPage() {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -324,35 +405,38 @@ export default function SettingsPage() {
   if (!people) return <p className="meta">Loading…</p>;
 
   return (
-    <>
-      <h1>Settings</h1>
-      {people.map((person) => (
-        <section key={person.id}>
-          <h2>{person.name}</h2>
-          <div className="card-grid">
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Thresholds</h3>
-              <ThresholdForm person={person} onSaved={refresh} />
+    <div className="settings-layout">
+      <div>
+        <h1>Settings</h1>
+        {people.map((person) => (
+          <section key={person.id}>
+            <h2>{person.name}</h2>
+            <div className="card-grid">
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Thresholds</h3>
+                <ThresholdForm person={person} onSaved={refresh} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Alert phone numbers</h3>
+                <SubscriberManager personId={person.id} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
+                <DosingForm person={person} onSaved={refresh} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Timezone</h3>
+                <TimezoneForm person={person} onSaved={refresh} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Safe-range check-ins</h3>
+                <TickerIntervalForm person={person} onSaved={refresh} />
+              </div>
             </div>
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Alert phone numbers</h3>
-              <SubscriberManager personId={person.id} />
-            </div>
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
-              <DosingForm person={person} onSaved={refresh} />
-            </div>
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Timezone</h3>
-              <TimezoneForm person={person} onSaved={refresh} />
-            </div>
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Safe-range check-ins</h3>
-              <TickerIntervalForm person={person} onSaved={refresh} />
-            </div>
-          </div>
-        </section>
-      ))}
-    </>
+          </section>
+        ))}
+      </div>
+      <SetupGuideBot />
+    </div>
   );
 }

@@ -14,6 +14,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <a href="/settings">Settings</a>
         <a href="/billing">Billing</a>
         <a href="/support">Support</a>
+        <a href="/docs" target="_blank" rel="noreferrer">
+          Docs
+        </a>
         <LogoutButton />
       </nav>
       <main>{children}</main>

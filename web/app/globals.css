@@ -147,13 +147,14 @@ label {
   gap: 0.25rem;
 }
 
-input {
+input, select, textarea {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.5rem 0.6rem;
   color: var(--text);
   font-size: 0.95rem;
+  font-family: inherit;
 }
 
 button {
@@ -609,4 +610,77 @@ section + section {
 
 .content-page a {
   color: var(--accent, var(--status-green));
+}
+
+/* Settings page: two-column layout with the sticky setup helper */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.setup-bot {
+  position: sticky;
+  top: 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.setup-bot-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.setup-bot-avatar {
+  font-size: 1.6rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.setup-bot-item {
+  border-top: 1px solid var(--border);
+}
+
+.setup-bot-item:first-of-type {
+  border-top: none;
+}
+
+.setup-bot-question {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.65rem 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.setup-bot-answer {
+  padding-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+  .setup-bot {
+    position: static;
+  }
 }
