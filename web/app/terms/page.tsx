@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { LogoLink } from "../lib/Logo";
+
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  description: "Glucoalarm's terms of service.",
+};
 
 export default function TermsPage() {
   return (

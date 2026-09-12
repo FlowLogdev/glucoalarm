@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { LogoLink } from "../lib/Logo";
+
+export const metadata: Metadata = {
+  title: "Refund Policy",
+  description: "Glucoalarm's refund policy.",
+};
 
 export default function RefundPolicyPage() {
   return (

@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { LogoLink } from "../lib/Logo";
+
+export const metadata: Metadata = {
+  title: "Contact",
+  description: "Get in touch with the Glucoalarm team.",
+};
 
 export default function ContactPage() {
   return (

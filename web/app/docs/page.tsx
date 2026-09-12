@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { LogoLink } from "../lib/Logo";
+
+export const metadata: Metadata = {
+  title: "Docs",
+  description: "How to connect Dexcom Share, set alert thresholds, add contacts, and use Glucoalarm's WhatsApp and phone-call alerts.",
+};
 
 export default function DocsPage() {
   return (

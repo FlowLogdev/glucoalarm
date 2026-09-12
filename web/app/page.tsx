@@ -1,8 +1,26 @@
 import { LogoLink } from "./lib/Logo";
 
+const STRUCTURED_DATA = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Glucoalarm",
+  applicationCategory: "HealthApplication",
+  operatingSystem: "Web",
+  description:
+    "Glucose alerts that reach you before it's urgent. Connect your own Dexcom Share account and get WhatsApp alerts the moment glucose leaves the safe range, plus phone call escalation for lows.",
+  offers: {
+    "@type": "Offer",
+    price: "59.99",
+    priceCurrency: "USD",
+    priceValidUntil: "2027-12-31",
+    availability: "https://schema.org/InStock",
+  },
+};
+
 export default function MarketingPage() {
   return (
     <div className="marketing">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
       <nav className="marketing-nav">
         <LogoLink isHomePage />
         <div className="marketing-nav-links">
