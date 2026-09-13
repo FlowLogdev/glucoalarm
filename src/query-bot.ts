@@ -4,6 +4,7 @@ import { sendReportEmail } from "./report-email";
 import { buildReadingsCsv, type ReadingCsvRow } from "./csv";
 import { parseQueryIntent } from "./lib/query-intent";
 import { bucketByDayPeriod } from "./report-patterns";
+import { detectGlucoseEvents } from "./report-events";
 import { computeGlucoseStats } from "./report-stats";
 import type { Env } from "./types";
 import type { ThresholdBand } from "./lib/alerts";
@@ -41,24 +42,57 @@ function rangeLabel(days: number): string {
   }
 }
 
+function formatLocalTime(unixSeconds: number, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(unixSeconds * 1000));
+}
+
+function formatLocalDate(unixSeconds: number, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: timezone, month: "short", day: "numeric" }).format(new Date(unixSeconds * 1000));
+}
+
+/**
+ * "What time" means actual clock times, not just a day-period label -- so
+ * this leads with detectGlucoseEvents' real episode timestamps (same data
+ * the Reports page's event log uses). For anything longer than a single
+ * day that list gets long, so it's capped and followed by the
+ * bucketByDayPeriod tendency summary (the Reports page's day-period
+ * breakdown) to answer "compare the times of day" too.
+ */
 function buildTimeOfDayReply(person: QueryPerson, rangeDays: number, readings: ReadingCsvRow[]): string {
   const label = rangeLabel(rangeDays);
   if (readings.length === 0) {
     return `No Dexcom readings found for ${person.name} in the last ${label}.`;
   }
 
-  const buckets = bucketByDayPeriod(readings, person.timezone ?? "UTC", person);
-  const lowParts = buckets.filter((b) => (b.timeLowPct ?? 0) > 0).map((b) => `${b.period} ${b.timeLowPct}%`);
-  const highParts = buckets.filter((b) => (b.timeHighPct ?? 0) > 0).map((b) => `${b.period} ${b.timeHighPct}%`);
+  const tz = person.timezone ?? "UTC";
+  const events = detectGlucoseEvents(readings, person);
 
-  if (lowParts.length === 0 && highParts.length === 0) {
+  if (events.length === 0) {
     return `No lows or highs recorded for ${person.name} in the last ${label} -- all readings were in range (${person.safe_low}-${person.safe_high} mg/dL).`;
   }
 
-  const parts: string[] = [];
-  if (lowParts.length > 0) parts.push(`Lows tend to happen: ${lowParts.join(", ")}`);
-  if (highParts.length > 0) parts.push(`Highs: ${highParts.join(", ")}`);
-  return `${person.name}, last ${label} -- ${parts.join(". ")}.`;
+  const maxEvents = rangeDays === 1 ? 8 : 5;
+  const recent = [...events].sort((a, b) => b.extremeAt - a.extremeAt).slice(0, maxEvents);
+  const lines = recent.map((e) => {
+    const tag = e.direction === "low" ? "Low" : "High";
+    const when = rangeDays === 1 ? formatLocalTime(e.extremeAt, tz) : `${formatLocalDate(e.extremeAt, tz)} ${formatLocalTime(e.extremeAt, tz)}`;
+    return `${tag} ${e.extremeValue} at ${when}`;
+  });
+
+  let reply = `${person.name}, last ${label}: ${lines.join("; ")}.`;
+  if (events.length > maxEvents) reply += ` (+${events.length - maxEvents} more)`;
+
+  if (rangeDays > 1) {
+    const buckets = bucketByDayPeriod(readings, tz, person);
+    const lowParts = buckets.filter((b) => (b.timeLowPct ?? 0) > 0).map((b) => `${b.period} ${b.timeLowPct}%`);
+    const highParts = buckets.filter((b) => (b.timeHighPct ?? 0) > 0).map((b) => `${b.period} ${b.timeHighPct}%`);
+    const patternParts: string[] = [];
+    if (lowParts.length > 0) patternParts.push(`lows tend: ${lowParts.join(", ")}`);
+    if (highParts.length > 0) patternParts.push(`highs tend: ${highParts.join(", ")}`);
+    if (patternParts.length > 0) reply += ` Pattern -- ${patternParts.join("; ")}.`;
+  }
+
+  return reply;
 }
 
 function buildReply(person: QueryPerson, metric: "summary" | "a1c" | "time_in_range", rangeDays: number, stats: ReturnType<typeof computeGlucoseStats>): string {

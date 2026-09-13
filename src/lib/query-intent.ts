@@ -12,7 +12,23 @@ const DEFAULT_INTENT: QueryIntent = { range_days: 1, metric: "summary" };
 const SYSTEM_PROMPT = `Parse a WhatsApp message asking about glucose data into JSON only, no other text: {"range_days": 1|7|14|30|90, "metric": "summary"|"a1c"|"time_in_range"|"time_of_day"|"email_report"}.
 
 range_days: map "today"/"now"/no timeframe mentioned -> 1 (except see the email_report override below). "week"/"7 days" -> 7. "two weeks" -> 14. "month"/"30 days" -> 30. "3 months"/"quarter"/"90 days" -> 90. Round anything else to the nearest of these five values. If metric is "email_report" and no timeframe is mentioned, use 7 instead of 1 -- a "report" implies a real window, not just the last 24 hours.
-metric: "a1c"/"A1C"/"GMI" mentioned and nothing else -> "a1c". "time in range"/"TIR"/"range" mentioned and nothing else -> "time_in_range". Asking what time of day lows/highs happen, or to compare times of day -> "time_of_day". Asking to email, send, or generate a report, or for the data/CSV/Excel -> "email_report". Otherwise, or if unclear -> "summary".
+
+metric rules, in priority order:
+1. The message mentions "time"/"when"/"what hour" together with lows/highs, OR asks to see/compare lows and highs at all (even via "pie chart", without the word "time") -> "time_of_day". This category is broad -- default to it whenever lows/highs/spikes are the subject and the message isn't clearly just "a1c" or "time in range" alone.
+2. Asking to email, send, text, or generate a report, or for the underlying data/CSV/Excel -> "email_report".
+3. "a1c"/"A1C"/"GMI" mentioned and nothing else -> "a1c".
+4. "time in range"/"TIR"/"% in range" mentioned and nothing else -> "time_in_range".
+5. Otherwise, or a plain "how's he doing"/"summary"/unclear request -> "summary".
+
+Examples (typos and casual phrasing are normal, match on intent not exact wording):
+"What time Felipe have lows and hoghs?" -> {"range_days":1,"metric":"time_of_day"}
+"Can you tell me what time he has lows ans highs?" -> {"range_days":1,"metric":"time_of_day"}
+"Based on his pie charts show me the lows ans highs?" -> {"range_days":1,"metric":"time_of_day"}
+"What time happens felipe's high and lows and average?" -> {"range_days":1,"metric":"time_of_day"}
+"when does he usually go low?" -> {"range_days":7,"metric":"time_of_day"}
+"email me a report for the last 30 days" -> {"range_days":30,"metric":"email_report"}
+"how's felipe doing today" -> {"range_days":1,"metric":"summary"}
+"what's his a1c this month" -> {"range_days":30,"metric":"a1c"}
 
 Output only the JSON object, nothing else.`;
 
