@@ -1,7 +1,7 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyAlert, classifyTier, isStale, isInCooldown, type AlertType, type Person } from "./lib/alerts";
+import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { decrypt } from "./lib/crypto";
@@ -192,6 +192,30 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     // the cooldown below -- only the safe tier needs an explicit ticker so
     // recipients see a live number instead of silence between tier changes.
     if (tier === "safe") {
+      // Early heads-up for a brisk decline while still technically safe --
+      // fires independently of the ticker's schedule/cooldown, since this
+      // is time-sensitive in a way a routine check-in isn't.
+      if (trend && shouldWarnFastDrop(person, value, trend)) {
+        const lastFastDropAlert = await env.DB
+          .prepare(`SELECT sent_at FROM alerts_log WHERE person_id = ? AND type = 'fast_drop_warning' ORDER BY sent_at DESC LIMIT 1`)
+          .bind(person.id)
+          .first<{ sent_at: number }>();
+        if (!isInCooldown(now, "fast_drop_warning", lastFastDropAlert?.sent_at ?? null)) {
+          const fastDropVariables = alertVariables("fast_drop_warning", person.name, value, trend, person.stale_minutes, time);
+          for (const sub of subscribers.results) {
+            try {
+              await sendWhatsApp(sub.phone_number, fastDropVariables, env);
+            } catch (err) {
+              console.error(`sendWhatsApp (fast_drop_warning) failed for ${person.id} -> ${sub.phone_number}:`, err);
+            }
+          }
+          await env.DB
+            .prepare(`INSERT INTO alerts_log (person_id, type, value_mgdl, sent_at) VALUES (?, 'fast_drop_warning', ?, ?)`)
+            .bind(person.id, value, now)
+            .run();
+        }
+      }
+
       const tickerIntervalSeconds = person.ticker_interval_minutes * 60;
       const dueForTicker =
         !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= tickerIntervalSeconds;

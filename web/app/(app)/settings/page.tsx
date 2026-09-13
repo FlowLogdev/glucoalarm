@@ -26,7 +26,7 @@ import {
   type Subscriber,
 } from "../../lib/api";
 
-const TICKER_OPTIONS = [5, 10, 15, 20, 30, 60];
+const TICKER_OPTIONS = [5, 8, 10, 15, 20, 30, 60];
 
 function ReportEmailForm({ person, readOnly }: { person: Person; readOnly: boolean }) {
   const [email, setEmail] = useState(person.report_email_address ?? "");

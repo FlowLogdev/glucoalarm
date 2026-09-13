@@ -5,7 +5,8 @@ export type AlertType =
   | "critical_high"
   | "recovered"
   | "signal_lost"
-  | "signal_restored";
+  | "signal_restored"
+  | "fast_drop_warning";
 
 export type Tier = "safe" | "warn_low" | "critical_low" | "warn_high" | "critical_high";
 
@@ -27,7 +28,29 @@ const COOLDOWN_SECONDS: Record<AlertType, number> = {
   recovered: 0, // self-limiting: only fires on a tier transition, see classifyAlert
   signal_lost: 15 * 60,
   signal_restored: 0, // self-limiting: only fires on the signal_lost -> ok transition
+  fast_drop_warning: 5 * 60,
 };
+
+// How close to safe_low (in mg/dL) a reading has to be, while still in the
+// safe tier, before a fast drop there is worth an early heads-up -- e.g.
+// DoubleDown at 280 mg/dL heading toward target range is good news, not a
+// warning. 40 matches the "rapid change" threshold already used for the
+// descriptive spike/drop pattern flags in report-events.ts.
+const FAST_DROP_BUFFER_MGDL = 40;
+
+/**
+ * True when Dexcom's own rate-of-change flag ("falling_fast", Dexcom's
+ * DoubleDown) shows up while still nominally safe but getting close to
+ * safe_low -- gives a heads-up before the value actually crosses into
+ * warn_low/critical_low, rather than waiting for the threshold breach
+ * itself. Won't catch every fast drop (Dexcom's own trend algorithm can
+ * lag a genuinely sudden crash by one reading), but catches the more
+ * common case of a brisk-but-not-instant decline.
+ */
+export function shouldWarnFastDrop(person: ThresholdBand, value: number, trend: string): boolean {
+  if (trend !== "falling_fast") return false;
+  return value >= person.safe_low && value - person.safe_low <= FAST_DROP_BUFFER_MGDL;
+}
 
 export interface ThresholdBand {
   safe_low: number;

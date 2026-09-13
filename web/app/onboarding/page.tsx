@@ -229,7 +229,7 @@ function ContactsStep({ personId, onDone }: { personId: string; onDone: () => vo
   );
 }
 
-const TICKER_OPTIONS = [5, 10, 15, 20, 30, 60];
+const TICKER_OPTIONS = [5, 8, 10, 15, 20, 30, 60];
 
 function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => void }) {
   const [criticalLow, setCriticalLow] = useState(70);

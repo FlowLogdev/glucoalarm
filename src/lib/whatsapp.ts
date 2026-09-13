@@ -59,6 +59,8 @@ function labelFor(type: AlertType, staleMinutes: number | null): string {
       return "✅ BACK IN SAFE RANGE";
     case "signal_restored":
       return "📶 SIGNAL RESTORED";
+    case "fast_drop_warning":
+      return "⏱️ DROPPING FAST - MONITOR CLOSELY";
   }
 }
 

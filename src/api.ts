@@ -14,7 +14,7 @@ import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
 import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type ReportPerson } from "./reports-generator";
 import type { Env } from "./types";
 
-const TICKER_INTERVAL_OPTIONS = new Set([5, 10, 15, 20, 30, 60]);
+const TICKER_INTERVAL_OPTIONS = new Set([5, 8, 10, 15, 20, 30, 60]);
 const MAX_SUBSCRIBERS_FOR_NEW_CUSTOMERS = 2;
 const FELIPE_INTERNAL_CUSTOMER_ID = "felipe-internal";
 
