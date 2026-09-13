@@ -43,6 +43,41 @@ export async function sendWhatsApp(to: string, variables: Record<string, string>
   console.log(`sendWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
 }
 
+/**
+ * Free-form Body text, not the approved Content Template -- only safe to
+ * use as a reply to a message the recipient just sent (Twilio's 24h-window
+ * restriction on free-form messages is measured from their last inbound
+ * message, and this is always exactly that reply). Never use this for an
+ * unprompted outbound message -- use sendWhatsApp's template for those.
+ */
+export async function sendFreeformWhatsApp(to: string, body: string, env: Env): Promise<void> {
+  if (env.MESSAGE_MODE !== "whatsapp") {
+    console.log(`[WhatsApp stub, freeform] to=${to} body=${body}`);
+    return;
+  }
+
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_AUTH}`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      To: `whatsapp:${to}`,
+      From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
+      Body: body,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new TwilioError(`Twilio WhatsApp freeform send failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json<{ sid: string; status: string }>();
+  console.log(`sendFreeformWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
+}
+
 function labelFor(type: AlertType, staleMinutes: number | null): string {
   switch (type) {
     case "warn_low":

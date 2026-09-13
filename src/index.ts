@@ -4,6 +4,7 @@ import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { checkAndGenerateReports } from "./reports-generator";
 import { handleGoogleAuthStart, handleGoogleAuthCallback } from "./google-auth";
+import { handleWhatsAppInbound } from "./query-bot";
 import { bearerToken, getSessionAdmin } from "./auth";
 import type { Env } from "./types";
 
@@ -42,6 +43,12 @@ export default {
     }
     if (request.method === "GET" && url0.pathname === "/api/auth/google/callback") {
       return handleGoogleAuthCallback(request, env, Math.floor(Date.now() / 1000));
+    }
+
+    // WhatsApp inbound -- same reasoning: public, verified by Twilio's own
+    // request signature instead of our bearer token.
+    if (request.method === "POST" && url0.pathname === "/api/whatsapp/inbound") {
+      return handleWhatsAppInbound(request, env, Math.floor(Date.now() / 1000));
     }
 
     const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
