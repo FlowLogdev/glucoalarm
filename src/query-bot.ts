@@ -1,16 +1,22 @@
 import { verifyTwilioSignature } from "./lib/twilio-verify";
 import { sendFreeformWhatsApp } from "./lib/whatsapp";
+import { sendReportEmail } from "./report-email";
+import { buildReadingsCsv, type ReadingCsvRow } from "./csv";
 import { parseQueryIntent } from "./lib/query-intent";
-import { computeGlucoseStats, type ReadingRow } from "./report-stats";
+import { bucketByDayPeriod } from "./report-patterns";
+import { computeGlucoseStats } from "./report-stats";
 import type { Env } from "./types";
 import type { ThresholdBand } from "./lib/alerts";
 
 const MAX_QUERIES_PER_PHONE_PER_DAY = 20;
 const CODE_TTL_SECONDS = 10 * 60;
+const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 
 interface QueryPerson extends ThresholdBand {
   id: string;
   name: string;
+  timezone: string | null;
+  report_email_address: string | null;
   subscriber_id: number;
   verified_at: number | null;
   verification_code: string | null;
@@ -33,6 +39,26 @@ function rangeLabel(days: number): string {
     default:
       return `${days} days`;
   }
+}
+
+function buildTimeOfDayReply(person: QueryPerson, rangeDays: number, readings: ReadingCsvRow[]): string {
+  const label = rangeLabel(rangeDays);
+  if (readings.length === 0) {
+    return `No Dexcom readings found for ${person.name} in the last ${label}.`;
+  }
+
+  const buckets = bucketByDayPeriod(readings, person.timezone ?? "UTC", person);
+  const lowParts = buckets.filter((b) => (b.timeLowPct ?? 0) > 0).map((b) => `${b.period} ${b.timeLowPct}%`);
+  const highParts = buckets.filter((b) => (b.timeHighPct ?? 0) > 0).map((b) => `${b.period} ${b.timeHighPct}%`);
+
+  if (lowParts.length === 0 && highParts.length === 0) {
+    return `No lows or highs recorded for ${person.name} in the last ${label} -- all readings were in range (${person.safe_low}-${person.safe_high} mg/dL).`;
+  }
+
+  const parts: string[] = [];
+  if (lowParts.length > 0) parts.push(`Lows tend to happen: ${lowParts.join(", ")}`);
+  if (highParts.length > 0) parts.push(`Highs: ${highParts.join(", ")}`);
+  return `${person.name}, last ${label} -- ${parts.join(". ")}.`;
 }
 
 function buildReply(person: QueryPerson, metric: "summary" | "a1c" | "time_in_range", rangeDays: number, stats: ReturnType<typeof computeGlucoseStats>): string {
@@ -88,6 +114,7 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
     .prepare(
       `SELECT people.id as id, people.name as name, people.safe_low as safe_low, people.safe_high as safe_high,
               people.critical_low as critical_low, people.critical_high as critical_high,
+              people.timezone as timezone, people.report_email_address as report_email_address,
               phone_subscribers.id as subscriber_id, phone_subscribers.verified_at as verified_at,
               phone_subscribers.verification_code as verification_code,
               phone_subscribers.verification_code_sent_at as verification_code_sent_at
@@ -166,12 +193,59 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
 
   const readingsSince = now - intent.range_days * 24 * 60 * 60;
   const readings = await env.DB
-    .prepare(`SELECT value_mgdl, recorded_at FROM readings WHERE person_id = ? AND recorded_at >= ? ORDER BY recorded_at ASC`)
+    .prepare(`SELECT value_mgdl, trend, recorded_at FROM readings WHERE person_id = ? AND recorded_at >= ? ORDER BY recorded_at ASC`)
     .bind(person.id, readingsSince)
-    .all<ReadingRow>();
+    .all<ReadingCsvRow>();
 
-  const stats = computeGlucoseStats(readings.results, person);
-  const reply = buildReply(person, intent.metric, intent.range_days, stats);
+  if (intent.metric === "email_report") {
+    // Regex, not Claude, decides the destination address -- a wrong
+    // destination is a real data-leak risk, not just a wording nitpick.
+    const messageEmail = rawMessage.match(EMAIL_RE)?.[0] ?? null;
+    const destination = messageEmail ?? person.report_email_address;
+
+    if (!destination) {
+      await sendFreeformWhatsApp(
+        from,
+        `Reply with: email report to you@example.com to get ${person.name}'s data by email.`,
+        env
+      ).catch((err) => console.error("handleWhatsAppInbound: email-prompt reply failed:", err));
+      return emptyTwiml();
+    }
+
+    // First-time convenience only -- never silently overwrite an existing
+    // Settings-configured address from a chat message.
+    const isOneOffOverride = !!messageEmail && !!person.report_email_address && messageEmail !== person.report_email_address;
+    if (messageEmail && !person.report_email_address) {
+      await env.DB.prepare(`UPDATE people SET report_email_address = ? WHERE id = ?`).bind(messageEmail, person.id).run();
+    }
+
+    const stats = computeGlucoseStats(readings.results, person);
+    const csv = buildReadingsCsv(readings.results, person.name, `${intent.range_days}d`);
+    const label = rangeLabel(intent.range_days);
+
+    try {
+      await sendReportEmail(env, destination, person.name, "custom", readingsSince, now, person.timezone ?? "UTC", stats, csv);
+      const note = isOneOffOverride ? " (one-off, your saved report email is unchanged)" : "";
+      await sendFreeformWhatsApp(from, `Sending ${person.name}'s report (last ${label}) to ${destination} now${note}.`, env);
+    } catch (err) {
+      console.error(`handleWhatsAppInbound: report email failed for ${person.id} -> ${destination}:`, err);
+      await sendFreeformWhatsApp(from, "Couldn't send the report right now -- try again shortly.", env).catch(() => {});
+    }
+
+    await env.DB
+      .prepare(
+        `INSERT INTO bot_queries (person_id, phone_number, raw_message, range_days, metric, responded_at) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .bind(person.id, from, rawMessage.slice(0, 500), intent.range_days, intent.metric, now)
+      .run();
+
+    return emptyTwiml();
+  }
+
+  const reply =
+    intent.metric === "time_of_day"
+      ? buildTimeOfDayReply(person, intent.range_days, readings.results)
+      : buildReply(person, intent.metric, intent.range_days, computeGlucoseStats(readings.results, person));
 
   try {
     await sendFreeformWhatsApp(from, reply, env);

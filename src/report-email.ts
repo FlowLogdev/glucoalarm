@@ -21,7 +21,8 @@ export async function sendReportEmail(
   periodStart: number,
   periodEnd: number,
   timezone: string,
-  stats: GlucoseStats
+  stats: GlucoseStats,
+  csv?: { filename: string; content: string }
 ): Promise<void> {
   const typeLabel = reportType === "weekly" ? "Weekly" : reportType === "monthly" ? "Monthly" : "Custom";
   const rangeLabel = `${formatDate(periodStart, timezone)} - ${formatDate(periodEnd, timezone)}`;
@@ -44,6 +45,7 @@ export async function sendReportEmail(
      <table>${rows}</table>
      <p>View the full report, including event details and AI discussion points, at
      <a href="https://glucoalarm.com/reports">glucoalarm.com/reports</a>.</p>
-     <p style="color:#666;font-size:0.85em;">AI-generated insights included in the full report are for educational purposes only and are not medical advice.</p>`
+     <p style="color:#666;font-size:0.85em;">AI-generated insights included in the full report are for educational purposes only and are not medical advice.</p>`,
+    csv ? [csv] : undefined
   );
 }
