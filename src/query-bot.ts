@@ -6,10 +6,20 @@ import type { Env } from "./types";
 import type { ThresholdBand } from "./lib/alerts";
 
 const MAX_QUERIES_PER_PHONE_PER_DAY = 20;
+const CODE_TTL_SECONDS = 10 * 60;
 
 interface QueryPerson extends ThresholdBand {
   id: string;
   name: string;
+  subscriber_id: number;
+  verified_at: number | null;
+  verification_code: string | null;
+  verification_code_sent_at: number | null;
+}
+
+function randomVerificationCode(): string {
+  const bytes = crypto.getRandomValues(new Uint32Array(1));
+  return String(100000 + (bytes[0] % 900000));
 }
 
 function emptyTwiml(): Response {
@@ -53,10 +63,11 @@ function buildReply(person: QueryPerson, metric: "summary" | "a1c" | "time_in_ra
  * separately via the Twilio REST API (sendFreeformWhatsApp) so a slow
  * Claude/D1 call never risks Twilio's webhook timeout.
  *
- * Authorization is entirely data-driven via phone_subscribers -- there is
- * no separate self-serve verification step. A phone number only works
- * here if the account owner already added it in Settings, the same trust
- * level the existing outbound alerting has always relied on.
+ * Authorization is data-driven via phone_subscribers -- a number only works
+ * here if the account owner already added it in Settings, AND its holder
+ * has completed a one-time "reply with this code" verification over this
+ * same WhatsApp thread (see the verified_at check below). Outbound
+ * alerting in poll.ts has no such gate and is unaffected by any of this.
  */
 export async function handleWhatsAppInbound(request: Request, env: Env, now: number): Promise<Response> {
   const bodyText = await request.text();
@@ -76,7 +87,10 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
   const person = await env.DB
     .prepare(
       `SELECT people.id as id, people.name as name, people.safe_low as safe_low, people.safe_high as safe_high,
-              people.critical_low as critical_low, people.critical_high as critical_high
+              people.critical_low as critical_low, people.critical_high as critical_high,
+              phone_subscribers.id as subscriber_id, phone_subscribers.verified_at as verified_at,
+              phone_subscribers.verification_code as verification_code,
+              phone_subscribers.verification_code_sent_at as verification_code_sent_at
        FROM phone_subscribers
        JOIN people ON people.id = phone_subscribers.person_id
        JOIN customers ON customers.id = people.customer_id
@@ -92,6 +106,47 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
       "This number isn't set up to receive Glucoalarm updates. Sign up or check your billing at glucoalarm.com.",
       env
     ).catch((err) => console.error("handleWhatsAppInbound: not-found reply failed:", err));
+    return emptyTwiml();
+  }
+
+  // Proves whoever is texting actually holds this phone, not just that an
+  // account owner typed the number correctly -- see migration 0022. Doesn't
+  // affect outbound alerting at all, only this interactive query path.
+  if (!person.verified_at) {
+    const codeStillValid =
+      !!person.verification_code &&
+      !!person.verification_code_sent_at &&
+      now - person.verification_code_sent_at < CODE_TTL_SECONDS;
+
+    if (codeStillValid && rawMessage === person.verification_code) {
+      await env.DB
+        .prepare(`UPDATE phone_subscribers SET verified_at = ?, verification_code = NULL WHERE id = ?`)
+        .bind(now, person.subscriber_id)
+        .run();
+      await sendFreeformWhatsApp(from, "Verified. You can now text for glucose updates -- try \"summary\".", env).catch((err) =>
+        console.error("handleWhatsAppInbound: verified-confirmation reply failed:", err)
+      );
+      return emptyTwiml();
+    }
+
+    if (!codeStillValid) {
+      const code = randomVerificationCode();
+      await env.DB
+        .prepare(`UPDATE phone_subscribers SET verification_code = ?, verification_code_sent_at = ? WHERE id = ?`)
+        .bind(code, now, person.subscriber_id)
+        .run();
+      await sendFreeformWhatsApp(
+        from,
+        `To protect ${person.name}'s data, reply with this code to verify this number: ${code} (expires in 10 min).`,
+        env
+      ).catch((err) => console.error("handleWhatsAppInbound: verification-code reply failed:", err));
+    } else {
+      await sendFreeformWhatsApp(
+        from,
+        "A verification code was already sent -- reply with that code, or wait for it to expire and text again.",
+        env
+      ).catch((err) => console.error("handleWhatsAppInbound: already-sent reply failed:", err));
+    }
     return emptyTwiml();
   }
 
