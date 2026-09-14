@@ -5,15 +5,20 @@ export interface SubscriberSchedule {
 }
 
 /**
- * Pure function, same shape as classifyTier/isStale in lib/alerts.ts. Both
- * minute fields null means always active -- the default for every
+ * Pure function, same shape as classifyTier/isStale in lib/alerts.ts. No
+ * schedule fields set at all means always active -- the default for every
  * subscriber added before this feature existed, and for anyone who just
  * doesn't want a schedule. Only gates outbound pushes (alerts, ticker,
  * calls) -- the WhatsApp/voice bots are never gated by this, a caregiver
  * can always ask for information whenever they want it.
  */
 export function isSubscriberActiveNow(subscriber: SubscriberSchedule, timezone: string, nowSeconds: number): boolean {
-  if (subscriber.active_start_minute == null && subscriber.active_end_minute == null) return true;
+  // Note: checks all three fields, not just the minute fields -- a
+  // days-only schedule (no start/end time set) must still apply the day
+  // filter below, not be treated as unconfigured/always-active.
+  if (subscriber.active_start_minute == null && subscriber.active_end_minute == null && !subscriber.active_days) {
+    return true;
+  }
 
   const now = new Date(nowSeconds * 1000);
   const dayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" });
