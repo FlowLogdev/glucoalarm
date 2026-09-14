@@ -3,6 +3,7 @@ import { sendFreeformWhatsApp } from "./lib/whatsapp";
 import { sendReportEmail } from "./report-email";
 import { buildReadingsCsv, type ReadingCsvRow } from "./csv";
 import { parseQueryIntent } from "./lib/query-intent";
+import { generateBotChatReply, type FormattedEvent } from "./lib/bot-chat";
 import { bucketByDayPeriod } from "./report-patterns";
 import { detectGlucoseEvents } from "./report-events";
 import { computeGlucoseStats } from "./report-stats";
@@ -50,68 +51,19 @@ function formatLocalDate(unixSeconds: number, timezone: string): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: timezone, month: "short", day: "numeric" }).format(new Date(unixSeconds * 1000));
 }
 
-/**
- * "What time" means actual clock times, not just a day-period label -- so
- * this leads with detectGlucoseEvents' real episode timestamps (same data
- * the Reports page's event log uses). For anything longer than a single
- * day that list gets long, so it's capped and followed by the
- * bucketByDayPeriod tendency summary (the Reports page's day-period
- * breakdown) to answer "compare the times of day" too.
- */
-function buildTimeOfDayReply(person: QueryPerson, rangeDays: number, readings: ReadingCsvRow[]): string {
-  const label = rangeLabel(rangeDays);
-  if (readings.length === 0) {
-    return `No Dexcom readings found for ${person.name} in the last ${label}.`;
-  }
-
-  const tz = person.timezone ?? "UTC";
-  const events = detectGlucoseEvents(readings, person);
-
-  if (events.length === 0) {
-    return `No lows or highs recorded for ${person.name} in the last ${label} -- all readings were in range (${person.safe_low}-${person.safe_high} mg/dL).`;
-  }
-
+/** Pre-formats event times in the person's local timezone -- never hand Claude a raw epoch to do date math on. */
+function formatEventsForChat(readings: ReadingCsvRow[], thresholds: ThresholdBand, timezone: string, rangeDays: number): FormattedEvent[] {
+  const events = detectGlucoseEvents(readings, thresholds);
   const maxEvents = rangeDays === 1 ? 8 : 5;
-  const recent = [...events].sort((a, b) => b.extremeAt - a.extremeAt).slice(0, maxEvents);
-  const lines = recent.map((e) => {
-    const tag = e.direction === "low" ? "Low" : "High";
-    const when = rangeDays === 1 ? formatLocalTime(e.extremeAt, tz) : `${formatLocalDate(e.extremeAt, tz)} ${formatLocalTime(e.extremeAt, tz)}`;
-    return `${tag} ${e.extremeValue} at ${when}`;
-  });
-
-  let reply = `${person.name}, last ${label}: ${lines.join("; ")}.`;
-  if (events.length > maxEvents) reply += ` (+${events.length - maxEvents} more)`;
-
-  if (rangeDays > 1) {
-    const buckets = bucketByDayPeriod(readings, tz, person);
-    const lowParts = buckets.filter((b) => (b.timeLowPct ?? 0) > 0).map((b) => `${b.period} ${b.timeLowPct}%`);
-    const highParts = buckets.filter((b) => (b.timeHighPct ?? 0) > 0).map((b) => `${b.period} ${b.timeHighPct}%`);
-    const patternParts: string[] = [];
-    if (lowParts.length > 0) patternParts.push(`lows tend: ${lowParts.join(", ")}`);
-    if (highParts.length > 0) patternParts.push(`highs tend: ${highParts.join(", ")}`);
-    if (patternParts.length > 0) reply += ` Pattern -- ${patternParts.join("; ")}.`;
-  }
-
-  return reply;
-}
-
-function buildReply(person: QueryPerson, metric: "summary" | "a1c" | "time_in_range", rangeDays: number, stats: ReturnType<typeof computeGlucoseStats>): string {
-  const label = rangeLabel(rangeDays);
-  if (stats.readingCount === 0) {
-    return `No Dexcom readings found for ${person.name} in the last ${label}.`;
-  }
-
-  const gmiText = stats.gmi !== null ? `${stats.gmi}%` : "not enough data yet for a reliable estimate";
-
-  switch (metric) {
-    case "a1c":
-      return `${person.name}'s estimated A1C (GMI) over the last ${label}: ${gmiText}, based on ${stats.readingCount} readings.`;
-    case "time_in_range":
-      return `${person.name} was in range (${person.safe_low}-${person.safe_high} mg/dL) ${stats.timeInRangePct}% of the last ${label} (${stats.timeAboveRangePct}% high, ${stats.timeBelowRangePct}% low).`;
-    case "summary":
-    default:
-      return `${person.name}'s last ${label}: avg ${stats.mean} mg/dL, est. A1C (GMI) ${gmiText}, ${stats.timeInRangePct}% in range (${person.safe_low}-${person.safe_high} mg/dL). Based on ${stats.readingCount} readings.`;
-  }
+  return [...events]
+    .sort((a, b) => b.extremeAt - a.extremeAt)
+    .slice(0, maxEvents)
+    .map((e) => ({
+      direction: e.direction,
+      extremeValue: e.extremeValue,
+      when: rangeDays === 1 ? formatLocalTime(e.extremeAt, timezone) : `${formatLocalDate(e.extremeAt, timezone)} ${formatLocalTime(e.extremeAt, timezone)}`,
+      durationMinutes: Math.round(e.durationSeconds / 60),
+    }));
 }
 
 /**
@@ -276,10 +228,38 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
     return emptyTwiml();
   }
 
-  const reply =
-    intent.metric === "time_of_day"
-      ? buildTimeOfDayReply(person, intent.range_days, readings.results)
-      : buildReply(person, intent.metric, intent.range_days, computeGlucoseStats(readings.results, person));
+  // Everything else is open-ended conversation, grounded in the same
+  // computed data the old fixed templates used, phrased by Claude under
+  // report-ai.ts's exact safety guardrail (see src/lib/bot-chat.ts) --
+  // never a data source itself, never allowed to suggest a treatment.
+  const timezone = person.timezone ?? "UTC";
+  const stats = computeGlucoseStats(readings.results, person);
+  const events = formatEventsForChat(readings.results, person, timezone, intent.range_days);
+  const dayPeriodBuckets = bucketByDayPeriod(readings.results, timezone, person);
+
+  const historyRows = await env.DB
+    .prepare(
+      `SELECT raw_message, bot_reply FROM bot_queries WHERE phone_number = ? AND bot_reply IS NOT NULL ORDER BY responded_at DESC LIMIT 6`
+    )
+    .bind(from)
+    .all<{ raw_message: string; bot_reply: string }>();
+  const history = historyRows.results
+    .reverse()
+    .flatMap((r) => [
+      { role: "user" as const, content: r.raw_message },
+      { role: "assistant" as const, content: r.bot_reply },
+    ]);
+
+  const { reply } = await generateBotChatReply(env, {
+    personName: person.name,
+    thresholds: person,
+    rangeLabel: rangeLabel(intent.range_days),
+    stats,
+    events,
+    dayPeriodBuckets,
+    history,
+    message: rawMessage,
+  });
 
   try {
     await sendFreeformWhatsApp(from, reply, env);
@@ -289,9 +269,9 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
 
   await env.DB
     .prepare(
-      `INSERT INTO bot_queries (person_id, phone_number, raw_message, range_days, metric, responded_at) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bot_queries (person_id, phone_number, raw_message, range_days, metric, responded_at, bot_reply) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(person.id, from, rawMessage.slice(0, 500), intent.range_days, intent.metric, now)
+    .bind(person.id, from, rawMessage.slice(0, 500), intent.range_days, intent.metric, now, reply)
     .run();
 
   return emptyTwiml();

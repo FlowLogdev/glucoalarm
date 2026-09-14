@@ -28,7 +28,7 @@ const FALLBACK_ANALYSIS: AIReportAnalysis = {
 // (same banned-language regex style), widened to also catch diagnostic
 // claims and direct medication-change instructions, since a full report
 // gives the model more surface area to go wrong than a one-line summary.
-const BANNED_PATTERN =
+export const BANNED_PATTERN =
   /\b(inject|dose|dosing|units?\b.*insulin|insulin\b.*units?|administer|take \d|diagnos|you have (?:type|diabetes)|stop (?:taking|your) (?:medication|insulin)|start (?:taking|your) (?:medication|insulin)|increase your insulin|decrease your insulin|you should (?:take|stop|start))/i;
 
 function textFields(analysis: AIReportAnalysis): string[] {
