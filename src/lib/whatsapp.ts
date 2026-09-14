@@ -17,30 +17,69 @@ export async function sendWhatsApp(to: string, variables: Record<string, string>
     return;
   }
 
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_AUTH}`),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        To: `whatsapp:${to}`,
-        From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
-        ContentSid: env.WHATSAPP_TEMPLATE_SID,
-        ContentVariables: JSON.stringify(variables),
-      }),
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_AUTH}`),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          To: `whatsapp:${to}`,
+          From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
+          ContentSid: env.WHATSAPP_TEMPLATE_SID,
+          ContentVariables: JSON.stringify(variables),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new TwilioError(`Twilio WhatsApp send failed (${res.status}): ${text}`);
     }
-  );
+
+    const data = await res.json<{ sid: string; status: string }>();
+    console.log(`sendWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
+  } catch (err) {
+    // Falls back to plain SMS on any send-time failure (Twilio rejection,
+    // network error) -- this is the same class of failure that silently
+    // dropped a real alert earlier this session (the 24h free-form-window
+    // rejection). Doesn't catch "Twilio accepted it but the phone never
+    // got it" -- that needs status-callback webhooks, a separate feature.
+    console.error(`sendWhatsApp failed for ${to}, falling back to SMS:`, err);
+    const fallbackText = `${variables["1"] ?? ""} for ${variables["2"] ?? ""}: ${variables["3"] ?? "n/a"} mg/dL, trending ${variables["4"] ?? "n/a"}. ${variables["5"] ?? ""}`.trim();
+    await sendSMS(to, fallbackText, env);
+  }
+}
+
+export async function sendSMS(to: string, body: string, env: Env): Promise<void> {
+  if (env.MESSAGE_MODE !== "whatsapp") {
+    console.log(`[SMS stub] to=${to} body=${body}`);
+    return;
+  }
+
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + btoa(`${env.TWILIO_SID}:${env.TWILIO_AUTH}`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      To: to,
+      From: env.TWILIO_VOICE_FROM,
+      Body: body,
+    }),
+  });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new TwilioError(`Twilio WhatsApp send failed (${res.status}): ${text}`);
+    throw new TwilioError(`Twilio SMS send failed (${res.status}): ${text}`);
   }
 
   const data = await res.json<{ sid: string; status: string }>();
-  console.log(`sendWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
+  console.log(`sendSMS accepted: to=${to} sid=${data.sid} status=${data.status}`);
 }
 
 /**

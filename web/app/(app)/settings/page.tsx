@@ -16,6 +16,7 @@ import {
   restartService,
   updateDosingSettings,
   updateReportEmailSettings,
+  updateSubscriberSchedule,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
@@ -456,6 +457,104 @@ function DoctorAccessCard() {
   );
 }
 
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function minutesToTimeInput(minutes: number | null): string {
+  if (minutes == null) return "";
+  const h = Math.floor(minutes / 60)
+    .toString()
+    .padStart(2, "0");
+  const m = (minutes % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function timeInputToMinutes(value: string): number | null {
+  if (!value) return null;
+  const [h, m] = value.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function ScheduleEditor({ subscriber, readOnly, onSaved }: { subscriber: Subscriber; readOnly: boolean; onSaved: () => void }) {
+  const hasSchedule = subscriber.active_start_minute != null;
+  const [enabled, setEnabled] = useState(hasSchedule);
+  const [start, setStart] = useState(minutesToTimeInput(subscriber.active_start_minute));
+  const [end, setEnd] = useState(minutesToTimeInput(subscriber.active_end_minute));
+  const [days, setDays] = useState<Set<number>>(
+    new Set(subscriber.active_days ? subscriber.active_days.split(",").map(Number) : [])
+  );
+  const [status, setStatus] = useState<string | null>(null);
+
+  function toggleDay(day: number) {
+    setDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  }
+
+  async function onSave() {
+    setStatus(null);
+    try {
+      if (!enabled) {
+        await updateSubscriberSchedule(subscriber.id, { active_start_minute: null, active_end_minute: null, active_days: null });
+      } else {
+        const startMin = timeInputToMinutes(start);
+        const endMin = timeInputToMinutes(end);
+        if (startMin == null || endMin == null) {
+          setStatus("Set both a start and end time");
+          return;
+        }
+        await updateSubscriberSchedule(subscriber.id, {
+          active_start_minute: startMin,
+          active_end_minute: endMin,
+          active_days: days.size > 0 ? [...days].sort().join(",") : null,
+        });
+      }
+      setStatus("Saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <div style={{ marginTop: "0.4rem", marginBottom: "0.75rem", paddingLeft: "0.25rem" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 400 }}>
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} disabled={readOnly} />
+        <span className="meta">Limit alerts to specific hours (always on if unchecked)</span>
+      </label>
+      {enabled && (
+        <div style={{ marginTop: "0.5rem", display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
+          <label>
+            From
+            <input type="time" value={start} onChange={(e) => setStart(e.target.value)} disabled={readOnly} />
+          </label>
+          <label>
+            To
+            <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} disabled={readOnly} />
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            {DAY_LABELS.map((label, i) => (
+              <label key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", fontWeight: 400, fontSize: "0.8rem" }}>
+                {label}
+                <input type="checkbox" checked={days.has(i)} onChange={() => toggleDay(i)} disabled={readOnly} />
+              </label>
+            ))}
+          </div>
+          <span className="meta">No days checked = every day</span>
+        </div>
+      )}
+      {!readOnly && (
+        <button type="button" onClick={onSave} style={{ marginTop: "0.5rem" }}>
+          Save schedule
+        </button>
+      )}
+      {status && <p className="meta">{status}</p>}
+    </div>
+  );
+}
+
 function SubscriberManager({ personId, readOnly }: { personId: string; readOnly: boolean }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -496,13 +595,16 @@ function SubscriberManager({ personId, readOnly }: { personId: string; readOnly:
   return (
     <div>
       {subscribers?.map((s) => (
-        <div className="subscriber-row" key={s.id}>
-          <span>
-            {s.phone_number} {s.label && <span className="meta">({s.label})</span>}
-          </span>
-          <button className="danger" onClick={() => onRemove(s.id)} disabled={readOnly}>
-            Remove
-          </button>
+        <div key={s.id} style={{ borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem", marginBottom: "0.5rem" }}>
+          <div className="subscriber-row">
+            <span>
+              {s.phone_number} {s.label && <span className="meta">({s.label})</span>}
+            </span>
+            <button className="danger" onClick={() => onRemove(s.id)} disabled={readOnly}>
+              Remove
+            </button>
+          </div>
+          <ScheduleEditor subscriber={s} readOnly={readOnly} onSaved={refresh} />
         </div>
       ))}
       {subscribers?.length === 0 && <p className="meta">No phone numbers yet.</p>}

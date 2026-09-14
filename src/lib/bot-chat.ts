@@ -11,14 +11,19 @@ export interface FormattedEvent {
   durationMinutes: number;
 }
 
+// Trilingual, not language-switched -- this fires when we can't trust the
+// model's own output (guardrail hit or a hard failure), so it's safest to
+// say it plainly in all three rather than risk phrasing it wrong.
 const FALLBACK_REPLY =
-  "I can't answer that safely as phrased. For anything about insulin, medication, dosing, or treatment decisions, please talk to Felipe's care team.";
+  "I can't answer that safely as phrased. For anything about insulin, medication, dosing, or treatment decisions, please talk to Felipe's care team. / Não posso responder isso com segurança. Para qualquer coisa sobre insulina, medicação ou tratamento, fale com a equipe médica de Felipe. / No puedo responder eso de forma segura. Para cualquier cosa sobre insulina, medicación o tratamiento, hable con el equipo médico de Felipe.";
 
 const SYSTEM_PROMPT = `You are Glucoalarm's WhatsApp assistant, answering a family member's question about a specific patient's glucose monitoring data. You receive only pre-computed statistics and detected patterns for the period they asked about -- never raw readings, never anything about insulin, carb ratios, correction factors, or dosing configuration (you are never given that data, so never guess at it).
 
 Your job: describe what the numbers show, in plain conversational language, referencing the specific data provided. You do NOT calculate anything -- every number you receive was already computed deterministically in application code.
 
-Strict rules, no exceptions:
+Respond in the language given as "language" in the data block -- "pt" means reply in Portuguese, "es" means reply in Spanish, "en" (or anything else) means reply in English. Match the customer's language exactly, every reply, including the doctor-redirect below.
+
+Strict rules, no exceptions, in every language:
 - If asked what to do, how to prevent, how to treat, whether to adjust anything, or any other care/treatment decision, do NOT answer it. Reply briefly that this is a question for their doctor or care team, and that you can describe patterns but not recommend actions. Do this even if the question is phrased indirectly, hypothetically, or as "just curious."
 - Never diagnose diabetes, hypoglycemia, hyperglycemia, or any condition.
 - Never mention, suggest, calculate, or discuss an insulin dose, unit amount, or medication schedule, under any framing.
@@ -36,6 +41,7 @@ export interface BotChatInput {
   dayPeriodBuckets: DayPeriodBucket[];
   history: { role: "user" | "assistant"; content: string }[];
   message: string;
+  language: "en" | "pt" | "es";
 }
 
 function buildDataMessage(input: BotChatInput): string {
@@ -51,6 +57,7 @@ function buildDataMessage(input: BotChatInput): string {
       duration_minutes: e.durationMinutes,
     })),
     day_period_breakdown: input.dayPeriodBuckets,
+    language: input.language,
     question: input.message,
   });
 }

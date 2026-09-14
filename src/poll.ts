@@ -4,6 +4,7 @@ import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
+import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
 import type { Env } from "./types";
 
@@ -170,12 +171,19 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     person.low_call_critical_escalated = 0;
   }
 
-  const subscribers = await env.DB
+  const allSubscribers = await env.DB
     .prepare(
-      `SELECT phone_number, call_on_low FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT phone_number, call_on_low, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(person.id)
-    .all<{ phone_number: string; call_on_low: number }>();
+    .all<{ phone_number: string; call_on_low: number } & SubscriberSchedule>();
+
+  // Schedule only gates outbound pushes (alerts/ticker/calls) -- it never
+  // affects the WhatsApp/voice bots, a caregiver can always ask on demand.
+  const timezone = person.timezone ?? "UTC";
+  const subscribers = {
+    results: allSubscribers.results.filter((sub) => isSubscriberActiveNow(sub, timezone, now)),
+  };
 
   // The reading's actual time, not "now" -- otherwise a repeated alert on a
   // stale value looks like fresh data is still arriving every cooldown tick.

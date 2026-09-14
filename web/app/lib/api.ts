@@ -79,6 +79,9 @@ export interface Subscriber {
   person_id: string;
   phone_number: string;
   label: string | null;
+  active_start_minute: number | null;
+  active_end_minute: number | null;
+  active_days: string | null;
 }
 
 /** All data calls go through the same-origin proxy (app/api/proxy/[...path]),
@@ -126,6 +129,17 @@ export function addSubscriber(personId: string, phoneNumber: string, label: stri
 
 export function removeSubscriber(id: number): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>(`/subscribers/${id}`, { method: "DELETE" });
+}
+
+/** Pass nulls to clear the schedule back to always-active. */
+export function updateSubscriberSchedule(
+  id: number,
+  schedule: { active_start_minute: number | null; active_end_minute: number | null; active_days: string | null }
+): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/subscribers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(schedule),
+  });
 }
 
 export function updateThresholds(

@@ -157,7 +157,7 @@ async function getReportRoute(env: Env, personId: string, periodParam: string | 
 async function getSubscribers(env: Env, personId: string): Promise<Response> {
   const subs = await env.DB
     .prepare(
-      `SELECT id, person_id, phone_number, label, call_on_low, call_priority FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT id, person_id, phone_number, label, call_on_low, call_priority, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(personId)
     .all();
@@ -365,6 +365,32 @@ async function deleteInsulinLog(env: Env, id: string): Promise<Response> {
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
+const ACTIVE_DAYS_RE = /^[0-6](,[0-6]){0,6}$/;
+
+/** Both minute fields null = always active. active_days null = every day. */
+function validateSchedule(body: {
+  active_start_minute?: number | null;
+  active_end_minute?: number | null;
+  active_days?: string | null;
+}): { error: string } | { active_start_minute: number | null; active_end_minute: number | null; active_days: string | null } {
+  const start = body.active_start_minute ?? null;
+  const end = body.active_end_minute ?? null;
+  const days = body.active_days?.trim() || null;
+
+  if ((start === null) !== (end === null)) {
+    return { error: "active_start_minute and active_end_minute must be set together or both left blank" };
+  }
+  if (start !== null && (!Number.isInteger(start) || start < 0 || start > 1439)) {
+    return { error: "active_start_minute must be an integer 0-1439" };
+  }
+  if (end !== null && (!Number.isInteger(end) || end < 0 || end > 1439)) {
+    return { error: "active_end_minute must be an integer 0-1439" };
+  }
+  if (days !== null && !ACTIVE_DAYS_RE.test(days)) {
+    return { error: "active_days must be comma-separated digits 0-6 (Sun-Sat)" };
+  }
+  return { active_start_minute: start, active_end_minute: end, active_days: days };
+}
 
 async function postSubscriber(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{
@@ -373,6 +399,9 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
     label?: string;
     call_on_low?: boolean;
     call_priority?: number;
+    active_start_minute?: number | null;
+    active_end_minute?: number | null;
+    active_days?: string | null;
   }>();
   if (!body.person_id || !body.phone_number) {
     return jsonResponse({ error: "person_id and phone_number are required" }, 400);
@@ -380,6 +409,8 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
   if (!E164.test(body.phone_number)) {
     return jsonResponse({ error: "phone_number must be E.164 format, e.g. +13055551234" }, 400);
   }
+  const schedule = validateSchedule(body);
+  if ("error" in schedule) return jsonResponse({ error: schedule.error }, 400);
   const person = await env.DB
     .prepare(`SELECT id, customer_id FROM people WHERE id = ?`)
     .bind(body.person_id)
@@ -401,31 +432,55 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
 
   const result = await env.DB
     .prepare(
-      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority) VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority, active_start_minute, active_end_minute, active_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(body.person_id, body.phone_number, body.label ?? null, body.call_on_low ? 1 : 0, body.call_priority ?? 0)
+    .bind(
+      body.person_id,
+      body.phone_number,
+      body.label ?? null,
+      body.call_on_low ? 1 : 0,
+      body.call_priority ?? 0,
+      schedule.active_start_minute,
+      schedule.active_end_minute,
+      schedule.active_days
+    )
     .run();
   return jsonResponse({ id: result.meta.last_row_id }, 201);
 }
 
 async function patchSubscriber(env: Env, id: string, request: Request): Promise<Response> {
   if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
-  const body = await request.json<{ call_on_low?: boolean; call_priority?: number }>();
-  if (body.call_on_low == null && body.call_priority == null) {
-    return jsonResponse({ error: "call_on_low or call_priority is required" }, 400);
+  const body = await request.json<{
+    call_on_low?: boolean;
+    call_priority?: number;
+    active_start_minute?: number | null;
+    active_end_minute?: number | null;
+    active_days?: string | null;
+  }>();
+  const hasScheduleField = "active_start_minute" in body || "active_end_minute" in body || "active_days" in body;
+  if (body.call_on_low == null && body.call_priority == null && !hasScheduleField) {
+    return jsonResponse({ error: "call_on_low, call_priority, or a schedule field is required" }, 400);
   }
 
   const current = await env.DB
-    .prepare(`SELECT call_on_low, call_priority FROM phone_subscribers WHERE id = ?`)
+    .prepare(`SELECT call_on_low, call_priority, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
     .bind(id)
-    .first<{ call_on_low: number; call_priority: number }>();
+    .first<{ call_on_low: number; call_priority: number; active_start_minute: number | null; active_end_minute: number | null; active_days: string | null }>();
   if (!current) return jsonResponse({ error: "not_found" }, 404);
 
+  const schedule = hasScheduleField
+    ? validateSchedule(body)
+    : { active_start_minute: current.active_start_minute, active_end_minute: current.active_end_minute, active_days: current.active_days };
+  if ("error" in schedule) return jsonResponse({ error: schedule.error }, 400);
+
   const result = await env.DB
-    .prepare(`UPDATE phone_subscribers SET call_on_low = ?, call_priority = ? WHERE id = ?`)
+    .prepare(`UPDATE phone_subscribers SET call_on_low = ?, call_priority = ?, active_start_minute = ?, active_end_minute = ?, active_days = ? WHERE id = ?`)
     .bind(
       body.call_on_low != null ? (body.call_on_low ? 1 : 0) : current.call_on_low,
       body.call_priority ?? current.call_priority,
+      schedule.active_start_minute,
+      schedule.active_end_minute,
+      schedule.active_days,
       id
     )
     .run();

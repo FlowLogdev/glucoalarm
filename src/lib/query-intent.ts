@@ -3,13 +3,17 @@ import type { Env } from "../types";
 export interface QueryIntent {
   range_days: 1 | 7 | 14 | 30 | 90;
   metric: "summary" | "a1c" | "time_in_range" | "time_of_day" | "email_report";
+  language: "en" | "pt" | "es";
 }
 
 const VALID_RANGES = new Set([1, 7, 14, 30, 90]);
 const VALID_METRICS = new Set(["summary", "a1c", "time_in_range", "time_of_day", "email_report"]);
-const DEFAULT_INTENT: QueryIntent = { range_days: 1, metric: "summary" };
+const VALID_LANGUAGES = new Set(["en", "pt", "es"]);
+const DEFAULT_INTENT: QueryIntent = { range_days: 1, metric: "summary", language: "en" };
 
-const SYSTEM_PROMPT = `Parse a WhatsApp message asking about glucose data into JSON only, no other text: {"range_days": 1|7|14|30|90, "metric": "summary"|"a1c"|"time_in_range"|"time_of_day"|"email_report"}.
+const SYSTEM_PROMPT = `Parse a WhatsApp message asking about glucose data into JSON only, no other text: {"range_days": 1|7|14|30|90, "metric": "summary"|"a1c"|"time_in_range"|"time_of_day"|"email_report", "language": "en"|"pt"|"es"}.
+
+language: the language the message itself is written in -- "pt" for Portuguese, "es" for Spanish, "en" for English or anything else/ambiguous. This is used to reply in the same language, so judge it from the actual wording, not the topic.
 
 range_days: map "today"/"now"/no timeframe mentioned -> 1 (except see the email_report override below). "week"/"7 days" -> 7. "two weeks" -> 14. "month"/"30 days" -> 30. "3 months"/"quarter"/"90 days" -> 90. Round anything else to the nearest of these five values. If metric is "email_report" and no timeframe is mentioned, use 7 instead of 1 -- a "report" implies a real window, not just the last 24 hours.
 
@@ -27,8 +31,12 @@ Examples (typos and casual phrasing are normal, match on intent not exact wordin
 "What time happens felipe's high and lows and average?" -> {"range_days":1,"metric":"time_of_day"}
 "when does he usually go low?" -> {"range_days":7,"metric":"time_of_day"}
 "email me a report for the last 30 days" -> {"range_days":30,"metric":"email_report"}
-"how's felipe doing today" -> {"range_days":1,"metric":"summary"}
-"what's his a1c this month" -> {"range_days":30,"metric":"a1c"}
+"how's felipe doing today" -> {"range_days":1,"metric":"summary","language":"en"}
+"what's his a1c this month" -> {"range_days":30,"metric":"a1c","language":"en"}
+"como está o Felipe hoje?" -> {"range_days":1,"metric":"summary","language":"pt"}
+"a que horas ele fica baixo?" -> {"range_days":7,"metric":"time_of_day","language":"pt"}
+"¿cómo está Felipe hoy?" -> {"range_days":1,"metric":"summary","language":"es"}
+"envíame un reporte de los últimos 30 días" -> {"range_days":30,"metric":"email_report","language":"es"}
 
 Output only the JSON object, nothing else.`;
 
@@ -66,12 +74,13 @@ export async function parseQueryIntent(env: Env, rawMessage: string): Promise<Qu
     if (!text) throw new Error("no text content");
 
     const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-    const parsed = JSON.parse(cleaned) as { range_days?: unknown; metric?: unknown };
+    const parsed = JSON.parse(cleaned) as { range_days?: unknown; metric?: unknown; language?: unknown };
 
     const range_days = VALID_RANGES.has(Number(parsed.range_days)) ? (Number(parsed.range_days) as QueryIntent["range_days"]) : DEFAULT_INTENT.range_days;
     const metric = VALID_METRICS.has(String(parsed.metric)) ? (parsed.metric as QueryIntent["metric"]) : DEFAULT_INTENT.metric;
+    const language = VALID_LANGUAGES.has(String(parsed.language)) ? (parsed.language as QueryIntent["language"]) : DEFAULT_INTENT.language;
 
-    return { range_days, metric };
+    return { range_days, metric, language };
   } catch (err) {
     console.error("parseQueryIntent failed, using default intent:", err);
     return DEFAULT_INTENT;
