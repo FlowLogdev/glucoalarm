@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 .dev.vars
+mobile/.env
 web/.next/
 web/.env.local
 web/tsconfig.tsbuildinfo

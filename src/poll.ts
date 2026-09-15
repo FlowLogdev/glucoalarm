@@ -4,6 +4,7 @@ import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
+import { normalizeCallLanguage } from "./lib/voice-i18n";
 import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
 import type { Env } from "./types";
@@ -173,10 +174,10 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
   const allSubscribers = await env.DB
     .prepare(
-      `SELECT phone_number, call_on_low, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT phone_number, call_on_low, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(person.id)
-    .all<{ phone_number: string; call_on_low: number } & SubscriberSchedule>();
+    .all<{ phone_number: string; call_on_low: number; call_language: string } & SubscriberSchedule>();
 
   // Schedule only gates outbound pushes (alerts/ticker/calls) -- it never
   // affects the WhatsApp/voice bots, a caregiver can always ask on demand.
@@ -283,14 +284,15 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     const dueForEscalation = tier === "critical_low" && !person.low_call_critical_escalated;
 
     if (dueForRepeat || dueForEscalation) {
-      const callMessage = callMessageFor(person.name, value, time);
       const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}`;
       let calledAnyone = false;
       for (const sub of subscribers.results) {
         if (!sub.call_on_low) continue;
         calledAnyone = true;
+        const language = normalizeCallLanguage(sub.call_language);
+        const callMessage = callMessageFor(person.name, value, time, language);
         try {
-          await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env);
+          await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env, language);
         } catch (err) {
           console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
         }

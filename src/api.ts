@@ -12,6 +12,7 @@ import { getBilling, postBillingPortal } from "./billing";
 import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
 import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type ReportPerson } from "./reports-generator";
+import { isValidCallLanguage } from "./lib/voice-i18n";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 8, 10, 15, 20, 30, 60]);
@@ -157,7 +158,7 @@ async function getReportRoute(env: Env, personId: string, periodParam: string | 
 async function getSubscribers(env: Env, personId: string): Promise<Response> {
   const subs = await env.DB
     .prepare(
-      `SELECT id, person_id, phone_number, label, call_on_low, call_priority, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT id, person_id, phone_number, label, call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(personId)
     .all();
@@ -399,6 +400,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
     label?: string;
     call_on_low?: boolean;
     call_priority?: number;
+    call_language?: string;
     active_start_minute?: number | null;
     active_end_minute?: number | null;
     active_days?: string | null;
@@ -408,6 +410,9 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
   }
   if (!E164.test(body.phone_number)) {
     return jsonResponse({ error: "phone_number must be E.164 format, e.g. +13055551234" }, 400);
+  }
+  if (body.call_language != null && !isValidCallLanguage(body.call_language)) {
+    return jsonResponse({ error: "call_language must be one of en, es, pt" }, 400);
   }
   const schedule = validateSchedule(body);
   if ("error" in schedule) return jsonResponse({ error: schedule.error }, 400);
@@ -432,7 +437,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
 
   const result = await env.DB
     .prepare(
-      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority, active_start_minute, active_end_minute, active_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       body.person_id,
@@ -440,6 +445,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
       body.label ?? null,
       body.call_on_low ? 1 : 0,
       body.call_priority ?? 0,
+      body.call_language ?? "en",
       schedule.active_start_minute,
       schedule.active_end_minute,
       schedule.active_days
@@ -453,19 +459,30 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
   const body = await request.json<{
     call_on_low?: boolean;
     call_priority?: number;
+    call_language?: string;
     active_start_minute?: number | null;
     active_end_minute?: number | null;
     active_days?: string | null;
   }>();
   const hasScheduleField = "active_start_minute" in body || "active_end_minute" in body || "active_days" in body;
-  if (body.call_on_low == null && body.call_priority == null && !hasScheduleField) {
-    return jsonResponse({ error: "call_on_low, call_priority, or a schedule field is required" }, 400);
+  if (body.call_on_low == null && body.call_priority == null && body.call_language == null && !hasScheduleField) {
+    return jsonResponse({ error: "call_on_low, call_priority, call_language, or a schedule field is required" }, 400);
+  }
+  if (body.call_language != null && !isValidCallLanguage(body.call_language)) {
+    return jsonResponse({ error: "call_language must be one of en, es, pt" }, 400);
   }
 
   const current = await env.DB
-    .prepare(`SELECT call_on_low, call_priority, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
+    .prepare(`SELECT call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
     .bind(id)
-    .first<{ call_on_low: number; call_priority: number; active_start_minute: number | null; active_end_minute: number | null; active_days: string | null }>();
+    .first<{
+      call_on_low: number;
+      call_priority: number;
+      call_language: string;
+      active_start_minute: number | null;
+      active_end_minute: number | null;
+      active_days: string | null;
+    }>();
   if (!current) return jsonResponse({ error: "not_found" }, 404);
 
   const schedule = hasScheduleField
@@ -474,10 +491,13 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
   if ("error" in schedule) return jsonResponse({ error: schedule.error }, 400);
 
   const result = await env.DB
-    .prepare(`UPDATE phone_subscribers SET call_on_low = ?, call_priority = ?, active_start_minute = ?, active_end_minute = ?, active_days = ? WHERE id = ?`)
+    .prepare(
+      `UPDATE phone_subscribers SET call_on_low = ?, call_priority = ?, call_language = ?, active_start_minute = ?, active_end_minute = ?, active_days = ? WHERE id = ?`
+    )
     .bind(
       body.call_on_low != null ? (body.call_on_low ? 1 : 0) : current.call_on_low,
       body.call_priority ?? current.call_priority,
+      body.call_language ?? current.call_language,
       schedule.active_start_minute,
       schedule.active_end_minute,
       schedule.active_days,
@@ -606,7 +626,7 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "GET" && path === "/api/me") {
-    return jsonResponse({ email: a.email, role: a.role, is_super_admin: !!a.is_super_admin });
+    return jsonResponse({ email: a.email, role: a.role, is_super_admin: !!a.is_super_admin, customer_id: a.customer_id });
   }
 
   if (method === "POST" && path === "/api/setup-assistant") {

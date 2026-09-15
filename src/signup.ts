@@ -60,8 +60,8 @@ export async function postSignupComplete(env: Env, request: Request, now: number
   try {
     await env.DB
       .prepare(
-        `INSERT INTO customers (id, display_name, created_at, stripe_customer_id, stripe_subscription_id, subscription_status, stripe_checkout_session_id)
-         VALUES (?, ?, ?, ?, ?, 'active', ?)`
+        `INSERT INTO customers (id, display_name, created_at, stripe_customer_id, stripe_subscription_id, subscription_status, stripe_subscription_status, stripe_checkout_session_id)
+         VALUES (?, ?, ?, ?, ?, 'active', 'active', ?)`
       )
       .bind(customerId, body.display_name, now, stripeSession.customer, stripeSession.subscription, stripeSession.id)
       .run();
@@ -125,8 +125,8 @@ export async function postSignupCompleteGoogle(env: Env, request: Request, now: 
   try {
     await env.DB
       .prepare(
-        `INSERT INTO customers (id, display_name, created_at, stripe_customer_id, stripe_subscription_id, subscription_status, stripe_checkout_session_id)
-         VALUES (?, ?, ?, ?, ?, 'active', ?)`
+        `INSERT INTO customers (id, display_name, created_at, stripe_customer_id, stripe_subscription_id, subscription_status, stripe_subscription_status, stripe_checkout_session_id)
+         VALUES (?, ?, ?, ?, ?, 'active', 'active', ?)`
       )
       .bind(customerId, body.display_name, now, stripeSession.customer, stripeSession.subscription, stripeSession.id)
       .run();

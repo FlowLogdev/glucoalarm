@@ -2,9 +2,12 @@
 
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { LogoLink } from "../lib/Logo";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 
 function LoginForm() {
+  const t = useTranslations("login");
   const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
@@ -23,13 +26,13 @@ function LoginForm() {
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
-        setError("Invalid email or password.");
+        setError(t("errorInvalid"));
         return;
       }
       router.push(params.get("next") ?? "/dashboard");
       router.refresh();
     } catch {
-      setError("Couldn't reach the server. Try again.");
+      setError(t("errorUnreachable"));
     } finally {
       setLoading(false);
     }
@@ -40,20 +43,21 @@ function LoginForm() {
       <div className="auth-brand-panel">
         <LogoLink />
         <div>
-          <blockquote>
-            &ldquo;Nothing gets missed. That&apos;s all we set out to build.&rdquo;
-          </blockquote>
-          <p className="meta">Glucoalarm, glucose alerts that reach you before it&apos;s urgent</p>
+          <blockquote>&ldquo;{t("quote")}&rdquo;</blockquote>
+          <p className="meta">{t("tagline")}</p>
         </div>
       </div>
 
       <div className="auth-form-panel">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+          <LanguageSwitcher />
+        </div>
         <div>
-          <h1>Log in</h1>
-          <p className="meta">Welcome back. Enter your account details.</p>
+          <h1>{t("title")}</h1>
+          <p className="meta">{t("subtitle")}</p>
           <form onSubmit={onSubmit}>
             <label>
-              Email
+              {t("email")}
               <input
                 type="email"
                 value={email}
@@ -63,7 +67,7 @@ function LoginForm() {
               />
             </label>
             <label>
-              Password
+              {t("password")}
               <input
                 type="password"
                 value={password}
@@ -73,16 +77,16 @@ function LoginForm() {
               />
             </label>
             <button type="submit" disabled={loading}>
-              {loading ? "Logging in..." : "Log in"}
+              {loading ? t("submitting") : t("submit")}
             </button>
             {error && <p className="meta">{error}</p>}
           </form>
-          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>or</p>
+          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>{t("or")}</p>
           <a className="btn-secondary" href="/api/auth/google/start?intent=login" style={{ display: "block", textAlign: "center" }}>
-            Continue with Google
+            {t("googleContinue")}
           </a>
           <p className="meta" style={{ marginTop: "1.5rem" }}>
-            New here? <a href="/signup">Start your 7-day free trial</a>
+            {t("newHere")} <a href="/signup">{t("startTrial")}</a>
           </p>
         </div>
       </div>

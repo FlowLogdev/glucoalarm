@@ -74,11 +74,16 @@ export interface LatestReadingResponse {
   now: number;
 }
 
+export type CallLanguage = "en" | "es" | "pt";
+
 export interface Subscriber {
   id: number;
   person_id: string;
   phone_number: string;
   label: string | null;
+  call_on_low: number;
+  call_priority: number;
+  call_language: CallLanguage;
   active_start_minute: number | null;
   active_end_minute: number | null;
   active_days: string | null;
@@ -139,6 +144,13 @@ export function updateSubscriberSchedule(
   return apiFetch<{ ok: true }>(`/subscribers/${id}`, {
     method: "PATCH",
     body: JSON.stringify(schedule),
+  });
+}
+
+export function updateSubscriberCallLanguage(id: number, callLanguage: CallLanguage): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/subscribers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ call_language: callLanguage }),
   });
 }
 

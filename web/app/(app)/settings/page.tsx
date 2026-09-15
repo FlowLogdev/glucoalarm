@@ -16,10 +16,12 @@ import {
   restartService,
   updateDosingSettings,
   updateReportEmailSettings,
+  updateSubscriberCallLanguage,
   updateSubscriberSchedule,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
+  type CallLanguage,
   type CurrentAdmin,
   type Doctor,
   type Person,
@@ -555,6 +557,42 @@ function ScheduleEditor({ subscriber, readOnly, onSaved }: { subscriber: Subscri
   );
 }
 
+const CALL_LANGUAGE_OPTIONS: { value: CallLanguage; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Español" },
+  { value: "pt", label: "Português" },
+];
+
+function CallLanguagePicker({ subscriber, readOnly, onSaved }: { subscriber: Subscriber; readOnly: boolean; onSaved: () => void }) {
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function onChange(value: CallLanguage) {
+    setStatus(null);
+    try {
+      await updateSubscriberCallLanguage(subscriber.id, value);
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <div style={{ marginTop: "0.4rem", paddingLeft: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 400 }}>
+        <span className="meta">Call language</span>
+        <select value={subscriber.call_language} onChange={(e) => onChange(e.target.value as CallLanguage)} disabled={readOnly}>
+          {CALL_LANGUAGE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {status && <p className="meta">{status}</p>}
+    </div>
+  );
+}
+
 function SubscriberManager({ personId, readOnly }: { personId: string; readOnly: boolean }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -605,6 +643,7 @@ function SubscriberManager({ personId, readOnly }: { personId: string; readOnly:
             </button>
           </div>
           <ScheduleEditor subscriber={s} readOnly={readOnly} onSaved={refresh} />
+          <CallLanguagePicker subscriber={s} readOnly={readOnly} onSaved={refresh} />
         </div>
       ))}
       {subscribers?.length === 0 && <p className="meta">No phone numbers yet.</p>}

@@ -59,3 +59,5 @@ GOOGLE_CLIENT_ID = "990892015764-ceebifcao0repnfu2t2kve3uhb4ghved.apps.googleuse
 #                          verified there before support@flowlog.dev can send
 #   GOOGLE_CLIENT_SECRET      from the same Google Cloud Console OAuth Client as GOOGLE_CLIENT_ID
 #   GOOGLE_OAUTH_STATE_SECRET any long random string -- HMAC key for signing OAuth state/pending-signup tokens
+#   REVENUECAT_WEBHOOK_AUTHORIZATION exact Authorization header configured for the
+#                          RevenueCat webhook URL /api/revenuecat/webhook

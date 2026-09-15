@@ -2,6 +2,7 @@ import { pollAll } from "./poll";
 import { handleApi } from "./api";
 import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
+import { handleRevenueCatWebhook } from "./revenuecat-webhook";
 import { checkAndGenerateReports } from "./reports-generator";
 import { handleGoogleAuthStart, handleGoogleAuthCallback } from "./google-auth";
 import { handleWhatsAppInbound } from "./query-bot";
@@ -34,6 +35,10 @@ export default {
     // request signature instead of our bearer token.
     if (request.method === "POST" && url0.pathname === "/api/stripe/webhook") {
       return handleStripeWebhook(request, env, Math.floor(Date.now() / 1000));
+    }
+
+    if (request.method === "POST" && url0.pathname === "/api/revenuecat/webhook") {
+      return handleRevenueCatWebhook(request, env);
     }
 
     // Google OAuth -- public by necessity (Google redirects the browser

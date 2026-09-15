@@ -1,5 +1,6 @@
 import { verifyStripeSignature } from "./lib/stripe";
 import { sendWhatsApp, billingAlertVariables } from "./lib/whatsapp";
+import { setSubscriptionSourceStatus } from "./subscription-status";
 import type { Env } from "./types";
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -94,13 +95,12 @@ export async function handleStripeWebhook(request: Request, env: Env, now: numbe
       return jsonResponse({ received: true });
     }
 
-    if (existing.subscription_status !== newStatus) {
-      await env.DB.prepare(`UPDATE customers SET subscription_status = ? WHERE id = ?`).bind(newStatus, existing.id).run();
-
+    const result = await setSubscriptionSourceStatus(env, existing.id, "stripe", newStatus);
+    if (result?.changed) {
       const wasActive = existing.subscription_status === "active";
-      const isActive = newStatus === "active";
+      const isActive = result.status === "active";
       if (wasActive !== isActive) {
-        await notifyCustomerOfStatusChange(env, existing.id, newStatus, now);
+        await notifyCustomerOfStatusChange(env, existing.id, result.status, now);
       }
     }
   }

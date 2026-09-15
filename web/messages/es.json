@@ -1,0 +1,153 @@
+{
+  "languageSwitcher": {
+    "en": "English",
+    "es": "Español",
+    "pt": "Português"
+  },
+  "marketing": {
+    "nav": {
+      "pricing": "Precios",
+      "docs": "Documentación",
+      "support": "Soporte",
+      "contact": "Contacto",
+      "login": "Iniciar sesión",
+      "signup": "Registrarse"
+    },
+    "hero": {
+      "eyebrow": "Monitoreo de glucosa, reinventado",
+      "title": "Alertas de glucosa que llegan antes de que sea urgente.",
+      "body": "Conecta tu propia cuenta de Dexcom Share y recibe alertas por WhatsApp en el momento en que la glucosa sale del rango seguro, además de escalamiento por llamada telefónica en niveles bajos -- para que nada se pase por alto.",
+      "cta": "Comenzar",
+      "traceCaption": "Ejemplo de una lectura segura, alta y baja"
+    },
+    "trustStrip": {
+      "trial": "Prueba gratis de 7 días, sin cargo a la tarjeta hasta el día 8",
+      "cancel": "Cancela en cualquier momento desde Configuración",
+      "credentials": "Tus credenciales de Dexcom, cifradas y nunca compartidas"
+    },
+    "steps": {
+      "title1": "Conecta Dexcom",
+      "body1": "Ingresa tu inicio de sesión de Dexcom Share una vez. Las lecturas comienzan a llegar en menos de un minuto.",
+      "title2": "Configura tus rangos",
+      "body2": "Elige el rango seguro y los límites críticos para cada persona, en mg/dL.",
+      "title3": "Recibe alertas por WhatsApp",
+      "body3": "Los mensajes llegan según lo que el nivel requiera: ninguno en rango, cada cinco minutos en un nivel bajo o alto, cada minuto cuando es crítico."
+    },
+    "features": {
+      "scaleTitle": "Alertas que escalan con la urgencia",
+      "scaleBody": "La frecuencia de los mensajes sigue qué tan fuera del rango seguro está una lectura.",
+      "tierCritical": "Crítico",
+      "tierCriticalRate": "cada 1 min",
+      "tierLowHigh": "Bajo o alto",
+      "tierLowHighRate": "cada 5 min",
+      "tierSafe": "Rango seguro",
+      "tierSafeRate": "silencioso",
+      "setupTitle": "Configúralo en minutos",
+      "setupBody": "Conecta tu propia cuenta de Dexcom Share, agrega hasta dos contactos de alerta y define tus rangos -- sin necesidad de llamar a una línea de soporte.",
+      "reportsTitle": "Informes semanales y mensuales",
+      "reportsBody": "Observa cuándo suelen ocurrir los picos y los niveles bajos, para identificar y conversar patrones fácilmente."
+    },
+    "safety": {
+      "title": "Información, no instrucciones.",
+      "body": "Glucoalarm registra los conteos de carbohidratos y las dosis de insulina, y puede mostrar el cálculo de un factor de corrección que tú mismo ingreses, según lo prescrito por tu médico. No calcula ni sugiere dosis de insulina. Las decisiones de dosificación siguen siendo tuyas y de tu equipo de atención médica."
+    },
+    "footer": {
+      "login": "Iniciar sesión",
+      "pricing": "Precios",
+      "docs": "Documentación",
+      "support": "Soporte",
+      "contact": "Contacto",
+      "terms": "Términos",
+      "refunds": "Reembolsos"
+    }
+  },
+  "login": {
+    "quote": "Nada se pasa por alto. Eso es todo lo que nos propusimos construir.",
+    "tagline": "Glucoalarm, alertas de glucosa que llegan antes de que sea urgente",
+    "title": "Iniciar sesión",
+    "subtitle": "Bienvenido de nuevo. Ingresa los datos de tu cuenta.",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "submit": "Iniciar sesión",
+    "submitting": "Iniciando sesión...",
+    "or": "o",
+    "googleContinue": "Continuar con Google",
+    "newHere": "¿Nuevo aquí?",
+    "startTrial": "Comienza tu prueba gratis de 7 días",
+    "errorInvalid": "Correo electrónico o contraseña inválidos.",
+    "errorUnreachable": "No se pudo conectar con el servidor. Inténtalo de nuevo."
+  },
+  "signup": {
+    "login": "Iniciar sesión",
+    "title": "Comienza tu prueba gratis de 7 días",
+    "subtitle": "Un precio mensual único después de la prueba. Conecta tu propia cuenta de Dexcom Share, agrega hasta dos números de teléfono, y comienza a recibir alertas por WhatsApp y llamadas por nivel bajo en minutos.",
+    "planName": "Glucoalarm",
+    "priceSuffix": "/ mes",
+    "trialNote": "Los primeros 7 días son gratis. Tu tarjeta se cobra a partir del día 8, luego mensualmente hasta que canceles.",
+    "feature1": "Una persona monitoreada, conectada vía Dexcom Share",
+    "feature2": "Alertas por WhatsApp para niveles bajos, altos y controles en rango seguro",
+    "feature3": "Escalamiento por llamada telefónica en niveles bajos, hasta dos contactos",
+    "feature4": "Umbrales y frecuencia de actualización configurables",
+    "subscribe": "Comenzar prueba gratis",
+    "subscribing": "Iniciando el pago...",
+    "or": "o",
+    "googleSignup": "Registrarse con Google",
+    "disclaimer": "Glucoalarm es una herramienta de notificación, no un dispositivo médico. No calcula ni sugiere dosis de insulina. Después del pago, configurarás tu cuenta y conectarás Dexcom en unos pocos pasos. Consulta nuestra <refundPolicy>política de reembolso</refundPolicy> y <terms>términos</terms>.",
+    "errorGeneric": "No se pudo iniciar el pago."
+  },
+  "onboarding": {
+    "title": "Configura Glucoalarm",
+    "stepOf": "Paso {current} de {total}",
+    "loading": "Cargando...",
+    "missingSession": "Falta la sesión de pago. <login>Inicia sesión</login> para retomar un registro en progreso, o comienza de nuevo desde <signup>el registro</signup>.",
+    "account": {
+      "intro": "Pago confirmado. Configura tu cuenta para continuar.",
+      "nameLabel": "Tu nombre o el nombre del hogar",
+      "emailLabel": "Correo electrónico",
+      "passwordLabel": "Contraseña (mínimo 8 caracteres)",
+      "submit": "Continuar",
+      "submitting": "Creando cuenta...",
+      "errorGeneric": "Algo salió mal."
+    },
+    "accountGoogle": {
+      "intro": "Pago confirmado. Sesión iniciada con Google -- solo asigna un nombre a tu cuenta para continuar.",
+      "nameLabel": "Tu nombre o el nombre del hogar",
+      "submit": "Continuar",
+      "submitting": "Creando cuenta...",
+      "errorGeneric": "Algo salió mal."
+    },
+    "dexcom": {
+      "intro": "Conecta la cuenta de Dexcom Share de la persona monitoreada. Es el mismo inicio de sesión usado en la app móvil de Dexcom -- Glucoalarm la consulta igual que Dexcom Follow.",
+      "nameLabel": "Nombre de la persona monitoreada",
+      "usernameLabel": "Usuario de Dexcom Share",
+      "passwordLabel": "Contraseña de Dexcom Share",
+      "submit": "Conectar Dexcom",
+      "submitting": "Verificando con Dexcom...",
+      "errorAuth": "Esas credenciales de Dexcom no funcionaron. Verifica el usuario y la contraseña e inténtalo de nuevo.",
+      "errorGeneric": "No se pudo conectar con Dexcom. Inténtalo de nuevo."
+    },
+    "contacts": {
+      "intro": "Hasta dos números de teléfono pueden recibir alertas para esta persona -- nadie más.",
+      "phoneLabel": "Número de teléfono {index} (E.164, ej. +13055551234)",
+      "labelLabel": "Etiqueta (opcional)",
+      "labelPlaceholder": "Teléfono de mamá",
+      "addSecond": "Agregar un segundo número",
+      "submit": "Continuar",
+      "submitting": "Guardando...",
+      "errorGeneric": "No se pudieron guardar los números de teléfono"
+    },
+    "thresholds": {
+      "intro": "Define tus rangos de alerta en mg/dL, y con qué frecuencia quieres un mensaje de control mientras la glucosa está en el rango seguro. Puedes cambiarlos en cualquier momento en Configuración.",
+      "criticalLowLabel": "Bajo crítico -- por debajo de esto, las llamadas se repiten cada 5 min hasta ser confirmadas",
+      "safeLowLabel": "Límite inferior del rango seguro",
+      "safeHighLabel": "Límite superior del rango seguro",
+      "criticalHighLabel": "Alto crítico",
+      "tickerLabel": "Control en rango seguro cada",
+      "tickerMinutes": "{minutes} minutos",
+      "submit": "Finalizar configuración",
+      "submitting": "Finalizando configuración...",
+      "errorOrder": "Los umbrales deben cumplir: bajo crítico < bajo seguro < alto seguro < alto crítico",
+      "errorGeneric": "No se pudo guardar"
+    }
+  }
+}

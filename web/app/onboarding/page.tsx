@@ -2,6 +2,7 @@
 
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   addSubscriber,
   checkLoggedIn,
@@ -16,6 +17,7 @@ import {
 type Step = "account" | "dexcom" | "contacts" | "thresholds";
 
 function AccountStep({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
+  const t = useTranslations("onboarding.account");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,7 +32,7 @@ function AccountStep({ sessionId, onDone }: { sessionId: string; onDone: () => v
       await completeSignup(sessionId, displayName, email, password);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : t("errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -38,17 +40,17 @@ function AccountStep({ sessionId, onDone }: { sessionId: string; onDone: () => v
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">Payment confirmed. Set up your account to continue.</p>
+      <p className="meta">{t("intro")}</p>
       <label>
-        Your name or household name
+        {t("nameLabel")}
         <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
       </label>
       <label>
-        Email
+        {t("emailLabel")}
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
       </label>
       <label>
-        Password (at least 8 characters)
+        {t("passwordLabel")}
         <input
           type="password"
           value={password}
@@ -59,7 +61,7 @@ function AccountStep({ sessionId, onDone }: { sessionId: string; onDone: () => v
         />
       </label>
       <button type="submit" disabled={loading}>
-        {loading ? "Creating account..." : "Continue"}
+        {loading ? t("submitting") : t("submit")}
       </button>
       {error && <p className="meta">{error}</p>}
     </form>
@@ -78,6 +80,7 @@ function AccountStepGoogle({
   googleToken: string;
   onDone: () => void;
 }) {
+  const t = useTranslations("onboarding.accountGoogle");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,7 +93,7 @@ function AccountStepGoogle({
       await completeSignupGoogle(sessionId, googleToken, displayName);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : t("errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -98,13 +101,13 @@ function AccountStepGoogle({
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">Payment confirmed. Signed in with Google -- just name your account to continue.</p>
+      <p className="meta">{t("intro")}</p>
       <label>
-        Your name or household name
+        {t("nameLabel")}
         <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
       </label>
       <button type="submit" disabled={loading}>
-        {loading ? "Creating account..." : "Continue"}
+        {loading ? t("submitting") : t("submit")}
       </button>
       {error && <p className="meta">{error}</p>}
     </form>
@@ -112,6 +115,7 @@ function AccountStepGoogle({
 }
 
 function DexcomStep({ onDone }: { onDone: (personId: string) => void }) {
+  const t = useTranslations("onboarding.dexcom");
   const [name, setName] = useState("");
   const [dexcomUsername, setDexcomUsername] = useState("");
   const [dexcomPassword, setDexcomPassword] = useState("");
@@ -128,9 +132,9 @@ function DexcomStep({ onDone }: { onDone: (personId: string) => void }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       if (message.includes("dexcom_authentication_failed")) {
-        setError("Those Dexcom credentials didn't work. Double-check the username and password and try again.");
+        setError(t("errorAuth"));
       } else {
-        setError("Couldn't connect to Dexcom. Try again.");
+        setError(t("errorGeneric"));
       }
     } finally {
       setLoading(false);
@@ -139,20 +143,17 @@ function DexcomStep({ onDone }: { onDone: (personId: string) => void }) {
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">
-        Connect the Dexcom Share account for the person being monitored. This is the same login
-        used in the Dexcom mobile app -- Glucoalarm polls it the same way Dexcom Follow does.
-      </p>
+      <p className="meta">{t("intro")}</p>
       <label>
-        Name of the person being monitored
+        {t("nameLabel")}
         <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
       <label>
-        Dexcom Share username
+        {t("usernameLabel")}
         <input type="text" value={dexcomUsername} onChange={(e) => setDexcomUsername(e.target.value)} required />
       </label>
       <label>
-        Dexcom Share password
+        {t("passwordLabel")}
         <input
           type="password"
           value={dexcomPassword}
@@ -161,7 +162,7 @@ function DexcomStep({ onDone }: { onDone: (personId: string) => void }) {
         />
       </label>
       <button type="submit" disabled={loading}>
-        {loading ? "Verifying with Dexcom..." : "Connect Dexcom"}
+        {loading ? t("submitting") : t("submit")}
       </button>
       {error && <p className="meta">{error}</p>}
     </form>
@@ -169,6 +170,7 @@ function DexcomStep({ onDone }: { onDone: (personId: string) => void }) {
 }
 
 function ContactsStep({ personId, onDone }: { personId: string; onDone: () => void }) {
+  const t = useTranslations("onboarding.contacts");
   const [numbers, setNumbers] = useState<{ phone: string; label: string }[]>([{ phone: "", label: "" }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -188,7 +190,7 @@ function ContactsStep({ personId, onDone }: { personId: string; onDone: () => vo
       }
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save phone numbers");
+      setError(err instanceof Error ? err.message : t("errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -196,11 +198,11 @@ function ContactsStep({ personId, onDone }: { personId: string; onDone: () => vo
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">Up to two phone numbers can receive alerts for this person -- nobody else.</p>
+      <p className="meta">{t("intro")}</p>
       {numbers.map((n, i) => (
         <div key={i} style={{ marginBottom: "1rem" }}>
           <label>
-            Phone number {i + 1} (E.164, e.g. +13055551234)
+            {t("phoneLabel", { index: i + 1 })}
             <input
               type="tel"
               value={n.phone}
@@ -209,19 +211,19 @@ function ContactsStep({ personId, onDone }: { personId: string; onDone: () => vo
             />
           </label>
           <label>
-            Label (optional)
-            <input type="text" value={n.label} onChange={(e) => updateNumber(i, "label", e.target.value)} placeholder="Mom's phone" />
+            {t("labelLabel")}
+            <input type="text" value={n.label} onChange={(e) => updateNumber(i, "label", e.target.value)} placeholder={t("labelPlaceholder")} />
           </label>
         </div>
       ))}
       {numbers.length < 2 && (
         <button type="button" onClick={() => setNumbers((prev) => [...prev, { phone: "", label: "" }])}>
-          Add a second number
+          {t("addSecond")}
         </button>
       )}
       <div style={{ marginTop: "1rem" }}>
         <button type="submit" disabled={loading}>
-          {loading ? "Saving..." : "Continue"}
+          {loading ? t("submitting") : t("submit")}
         </button>
       </div>
       {error && <p className="meta">{error}</p>}
@@ -232,6 +234,7 @@ function ContactsStep({ personId, onDone }: { personId: string; onDone: () => vo
 const TICKER_OPTIONS = [5, 8, 10, 15, 20, 30, 60];
 
 function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => void }) {
+  const t = useTranslations("onboarding.thresholds");
   const [criticalLow, setCriticalLow] = useState(70);
   const [safeLow, setSafeLow] = useState(96);
   const [safeHigh, setSafeHigh] = useState(200);
@@ -245,7 +248,7 @@ function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => 
     e.preventDefault();
     setError(null);
     if (criticalLow >= safeLow || safeLow >= safeHigh || safeHigh >= criticalHigh) {
-      setError("Thresholds must satisfy: critical low < safe low < safe high < critical high");
+      setError(t("errorOrder"));
       return;
     }
     setLoading(true);
@@ -255,7 +258,7 @@ function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => 
       onDone();
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(err instanceof Error ? err.message : t("errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -263,38 +266,35 @@ function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => 
 
   return (
     <form onSubmit={onSubmit}>
-      <p className="meta">
-        Set your alert ranges in mg/dL, and how often you want a check-in message while glucose
-        is in the safe range. You can change these anytime in Settings.
-      </p>
+      <p className="meta">{t("intro")}</p>
       <label>
-        Critical low -- below this, phone calls repeat every 5 min until acknowledged
+        {t("criticalLowLabel")}
         <input type="number" value={criticalLow} onChange={(e) => setCriticalLow(Number(e.target.value))} required />
       </label>
       <label>
-        Safe range low
+        {t("safeLowLabel")}
         <input type="number" value={safeLow} onChange={(e) => setSafeLow(Number(e.target.value))} required />
       </label>
       <label>
-        Safe range high
+        {t("safeHighLabel")}
         <input type="number" value={safeHigh} onChange={(e) => setSafeHigh(Number(e.target.value))} required />
       </label>
       <label>
-        Critical high
+        {t("criticalHighLabel")}
         <input type="number" value={criticalHigh} onChange={(e) => setCriticalHigh(Number(e.target.value))} required />
       </label>
       <label>
-        Safe-range check-in every
+        {t("tickerLabel")}
         <select value={tickerMinutes} onChange={(e) => setTickerMinutes(Number(e.target.value))}>
           {TICKER_OPTIONS.map((m) => (
             <option key={m} value={m}>
-              {m} minutes
+              {t("tickerMinutes", { minutes: m })}
             </option>
           ))}
         </select>
       </label>
       <button type="submit" disabled={loading}>
-        {loading ? "Finishing setup..." : "Finish setup"}
+        {loading ? t("submitting") : t("submit")}
       </button>
       {error && <p className="meta">{error}</p>}
     </form>
@@ -302,6 +302,7 @@ function ThresholdsStep({ personId, onDone }: { personId: string; onDone: () => 
 }
 
 function OnboardingFlow() {
+  const t = useTranslations("onboarding");
   const params = useSearchParams();
   const router = useRouter();
   const sessionId = params.get("session_id");
@@ -334,23 +335,25 @@ function OnboardingFlow() {
   }, [sessionId, router]);
 
   if (!resumeChecked) {
-    return <p className="meta">Loading...</p>;
+    return <p className="meta">{t("loading")}</p>;
   }
 
   if (resumeError) {
     return (
       <p className="meta">
-        Missing checkout session. <a href="/login">Log in</a> to resume a signup already in
-        progress, or start over from <a href="/signup">signup</a>.
+        {t.rich("missingSession", {
+          login: (chunks) => <a href="/login">{chunks}</a>,
+          signup: (chunks) => <a href="/signup">{chunks}</a>,
+        })}
       </p>
     );
   }
 
   return (
     <section style={{ maxWidth: 480, margin: "3rem auto", padding: "0 1.5rem" }}>
-      <h1>Set up Glucoalarm</h1>
+      <h1>{t("title")}</h1>
       <p className="meta">
-        Step {["account", "dexcom", "contacts", "thresholds"].indexOf(step) + 1} of 4
+        {t("stepOf", { current: ["account", "dexcom", "contacts", "thresholds"].indexOf(step) + 1, total: 4 })}
       </p>
       <div className="card">
         {step === "account" && sessionId && googleToken && (

@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { normalizeCallLanguage, sayTag, type CallLanguage } from "./voice-i18n";
 
 export class TwilioVoiceError extends Error {}
 
@@ -32,16 +33,24 @@ const CALL_ACTIVE_WINDOW_MS = 30_000;
  * hanging up; the call itself doesn't retry -- pollPerson's 5-min repeat
  * cadence handles that on the next poll.
  */
-export async function makeVoiceCall(to: string, message: string, actionUrl: string, env: Env): Promise<void> {
+export async function makeVoiceCall(
+  to: string,
+  message: string,
+  actionUrl: string,
+  env: Env,
+  language: CallLanguage = "en",
+): Promise<void> {
   if (env.MESSAGE_MODE !== "whatsapp") {
-    console.log(`[Voice call stub] to=${to} message=${message} actionUrl=${actionUrl}`);
+    console.log(`[Voice call stub] to=${to} message=${message} actionUrl=${actionUrl} language=${language}`);
     return;
   }
 
-  const say = `<Say voice="Polly.Joanna">${escapeXml(message)} Please acknowledge by pressing 1. If you press 1, you will not receive more calls for this low.</Say>`;
+  const fullMessage = `${message} ${ACK_PROMPT[language]}`;
+  const say = sayTag(fullMessage, language);
+  const actionUrlWithLanguage = `${actionUrl}${actionUrl.includes("?") ? "&" : "?"}call_language=${language}`;
   const twiml =
     `<Response>` +
-    `<Gather numDigits="1" timeout="10" action="${escapeXml(actionUrl)}" method="POST">${say}</Gather>` +
+    `<Gather numDigits="1" timeout="10" action="${escapeXml(actionUrlWithLanguage)}" method="POST">${say}</Gather>` +
     say +
     `</Response>`;
 
@@ -67,6 +76,21 @@ export async function makeVoiceCall(to: string, message: string, actionUrl: stri
   await new Promise((resolve) => setTimeout(resolve, CALL_ACTIVE_WINDOW_MS));
 }
 
-export function callMessageFor(name: string, value: number, time: string): string {
-  return `This is an alert from Glucoalarm. ${name}'s glucose is low at ${value} milligrams per deciliter, recorded at ${time}.`;
+const ACK_PROMPT: Record<CallLanguage, string> = {
+  en: "Please acknowledge by pressing 1. If you press 1, you will not receive more calls for this low.",
+  es: "Por favor confirme presionando 1. Si presiona 1, no recibirá más llamadas por este nivel bajo.",
+  pt: "Por favor confirme pressionando 1. Se pressionar 1, você não receberá mais ligações sobre este nível baixo.",
+};
+
+const ALERT_TEMPLATES: Record<CallLanguage, (name: string, value: number, time: string) => string> = {
+  en: (name, value, time) =>
+    `This is an alert from Glucoalarm. ${name}'s glucose is low at ${value} milligrams per deciliter, recorded at ${time}.`,
+  es: (name, value, time) =>
+    `Esta es una alerta de Glucoalarm. El nivel de glucosa de ${name} está bajo, ${value} miligramos por decilitro, registrado a las ${time}.`,
+  pt: (name, value, time) =>
+    `Este é um alerta do Glucoalarm. O nível de glicose de ${name} está baixo, ${value} miligramas por decilitro, registrado às ${time}.`,
+};
+
+export function callMessageFor(name: string, value: number, time: string, language: CallLanguage = "en"): string {
+  return ALERT_TEMPLATES[normalizeCallLanguage(language)](name, value, time);
 }

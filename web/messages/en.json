@@ -1,0 +1,153 @@
+{
+  "languageSwitcher": {
+    "en": "English",
+    "es": "Español",
+    "pt": "Português"
+  },
+  "marketing": {
+    "nav": {
+      "pricing": "Pricing",
+      "docs": "Docs",
+      "support": "Support",
+      "contact": "Contact",
+      "login": "Log in",
+      "signup": "Sign up"
+    },
+    "hero": {
+      "eyebrow": "Glucose monitoring, reimagined",
+      "title": "Glucose alerts that reach you before it's urgent.",
+      "body": "Connect your own Dexcom Share account and get WhatsApp alerts the moment glucose leaves the safe range, plus phone call escalation for lows -- so nothing gets missed.",
+      "cta": "Get started",
+      "traceCaption": "Example trace across a safe, high, and low reading"
+    },
+    "trustStrip": {
+      "trial": "7-day free trial, no card charged until day 8",
+      "cancel": "Cancel anytime from Settings",
+      "credentials": "Your Dexcom credentials, encrypted and never shared"
+    },
+    "steps": {
+      "title1": "Connect Dexcom",
+      "body1": "Enter your Dexcom Share login once. Readings start flowing in under a minute.",
+      "title2": "Set your ranges",
+      "body2": "Choose the safe range and critical cutoffs for each person, in mg/dL.",
+      "title3": "Get alerted on WhatsApp",
+      "body3": "Messages arrive at the pace the number calls for: none in range, every five minutes in a low or high, every minute when it's critical."
+    },
+    "features": {
+      "scaleTitle": "Alerts that scale with urgency",
+      "scaleBody": "The message rate follows how far outside the safe range a reading is.",
+      "tierCritical": "Critical",
+      "tierCriticalRate": "every 1 min",
+      "tierLowHigh": "Low or high",
+      "tierLowHighRate": "every 5 min",
+      "tierSafe": "Safe range",
+      "tierSafeRate": "silent",
+      "setupTitle": "Set up in minutes",
+      "setupBody": "Connect your own Dexcom Share login, add up to two alert contacts, and set your ranges -- no phone calls to a support line required.",
+      "reportsTitle": "Weekly and monthly reports",
+      "reportsBody": "See when spikes and lows tend to happen, so patterns are easy to spot and discuss."
+    },
+    "safety": {
+      "title": "Information, not instructions.",
+      "body": "Glucoalarm logs carb counts and insulin doses, and can show the math for a correction factor you enter yourself, as prescribed by your doctor. It does not calculate or suggest insulin doses. Dosing decisions stay with you and your care team."
+    },
+    "footer": {
+      "login": "Log in",
+      "pricing": "Pricing",
+      "docs": "Docs",
+      "support": "Support",
+      "contact": "Contact",
+      "terms": "Terms",
+      "refunds": "Refunds"
+    }
+  },
+  "login": {
+    "quote": "Nothing gets missed. That's all we set out to build.",
+    "tagline": "Glucoalarm, glucose alerts that reach you before it's urgent",
+    "title": "Log in",
+    "subtitle": "Welcome back. Enter your account details.",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Log in",
+    "submitting": "Logging in...",
+    "or": "or",
+    "googleContinue": "Continue with Google",
+    "newHere": "New here?",
+    "startTrial": "Start your 7-day free trial",
+    "errorInvalid": "Invalid email or password.",
+    "errorUnreachable": "Couldn't reach the server. Try again."
+  },
+  "signup": {
+    "login": "Log in",
+    "title": "Start your 7-day free trial",
+    "subtitle": "One flat monthly price after the trial. Connect your own Dexcom Share account, add up to two phone numbers, and start receiving WhatsApp alerts and low-glucose phone calls within minutes.",
+    "planName": "Glucoalarm",
+    "priceSuffix": "/ month",
+    "trialNote": "First 7 days free. Your card is charged starting day 8, then monthly until you cancel.",
+    "feature1": "One monitored person, connected via Dexcom Share",
+    "feature2": "WhatsApp alerts for lows, highs, and safe-range check-ins",
+    "feature3": "Low-glucose phone call escalation, up to two contacts",
+    "feature4": "Configurable thresholds and update cadence",
+    "subscribe": "Start free trial",
+    "subscribing": "Starting checkout...",
+    "or": "or",
+    "googleSignup": "Sign up with Google",
+    "disclaimer": "Glucoalarm is a notification tool, not a medical device. It does not calculate or suggest insulin doses. After checkout, you'll set up your account and connect Dexcom in a few short steps. See our <refundPolicy>refund policy</refundPolicy> and <terms>terms</terms>.",
+    "errorGeneric": "Couldn't start checkout."
+  },
+  "onboarding": {
+    "title": "Set up Glucoalarm",
+    "stepOf": "Step {current} of {total}",
+    "loading": "Loading...",
+    "missingSession": "Missing checkout session. <login>Log in</login> to resume a signup already in progress, or start over from <signup>signup</signup>.",
+    "account": {
+      "intro": "Payment confirmed. Set up your account to continue.",
+      "nameLabel": "Your name or household name",
+      "emailLabel": "Email",
+      "passwordLabel": "Password (at least 8 characters)",
+      "submit": "Continue",
+      "submitting": "Creating account...",
+      "errorGeneric": "Something went wrong."
+    },
+    "accountGoogle": {
+      "intro": "Payment confirmed. Signed in with Google -- just name your account to continue.",
+      "nameLabel": "Your name or household name",
+      "submit": "Continue",
+      "submitting": "Creating account...",
+      "errorGeneric": "Something went wrong."
+    },
+    "dexcom": {
+      "intro": "Connect the Dexcom Share account for the person being monitored. This is the same login used in the Dexcom mobile app -- Glucoalarm polls it the same way Dexcom Follow does.",
+      "nameLabel": "Name of the person being monitored",
+      "usernameLabel": "Dexcom Share username",
+      "passwordLabel": "Dexcom Share password",
+      "submit": "Connect Dexcom",
+      "submitting": "Verifying with Dexcom...",
+      "errorAuth": "Those Dexcom credentials didn't work. Double-check the username and password and try again.",
+      "errorGeneric": "Couldn't connect to Dexcom. Try again."
+    },
+    "contacts": {
+      "intro": "Up to two phone numbers can receive alerts for this person -- nobody else.",
+      "phoneLabel": "Phone number {index} (E.164, e.g. +13055551234)",
+      "labelLabel": "Label (optional)",
+      "labelPlaceholder": "Mom's phone",
+      "addSecond": "Add a second number",
+      "submit": "Continue",
+      "submitting": "Saving...",
+      "errorGeneric": "Failed to save phone numbers"
+    },
+    "thresholds": {
+      "intro": "Set your alert ranges in mg/dL, and how often you want a check-in message while glucose is in the safe range. You can change these anytime in Settings.",
+      "criticalLowLabel": "Critical low -- below this, phone calls repeat every 5 min until acknowledged",
+      "safeLowLabel": "Safe range low",
+      "safeHighLabel": "Safe range high",
+      "criticalHighLabel": "Critical high",
+      "tickerLabel": "Safe-range check-in every",
+      "tickerMinutes": "{minutes} minutes",
+      "submit": "Finish setup",
+      "submitting": "Finishing setup...",
+      "errorOrder": "Thresholds must satisfy: critical low < safe low < safe high < critical high",
+      "errorGeneric": "Failed to save"
+    }
+  }
+}

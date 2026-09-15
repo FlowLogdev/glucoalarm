@@ -21,4 +21,5 @@ export interface Env {
   GOOGLE_CLIENT_ID: string; // OAuth 2.0 Client ID from Google Cloud Console -- not a secret, sent to the browser as part of the auth redirect
   GOOGLE_CLIENT_SECRET: string; // set via `wrangler secret put`
   GOOGLE_OAUTH_STATE_SECRET: string; // set via `wrangler secret put`, HMAC key for signing OAuth state + pending-signup tokens (any long random string)
+  REVENUECAT_WEBHOOK_AUTHORIZATION: string; // exact Authorization value configured in RevenueCat's webhook integration
 }

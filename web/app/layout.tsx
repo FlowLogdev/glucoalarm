@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
+import { LocaleInit } from "./components/LocaleInit";
 import "./globals.css";
 
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-display", display: "swap" });
@@ -40,10 +43,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
   return (
-    <html lang="en" className={outfit.variable}>
-      <body>{children}</body>
+    <html lang={locale} className={outfit.variable}>
+      <body>
+        <NextIntlClientProvider messages={messages}>
+          <LocaleInit />
+          {children}
+        </NextIntlClientProvider>
+      </body>
     </html>
   );
 }

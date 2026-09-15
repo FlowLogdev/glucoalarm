@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { LogoLink } from "../lib/Logo";
 import { startSignupCheckout } from "../lib/api";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 
 export default function SignupPage() {
+  const t = useTranslations("signup");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +18,7 @@ export default function SignupPage() {
       const { url } = await startSignupCheckout();
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't start checkout.");
+      setError(err instanceof Error ? err.message : t("errorGeneric"));
       setLoading(false);
     }
   }
@@ -24,49 +27,47 @@ export default function SignupPage() {
     <div className="marketing">
       <nav className="marketing-nav">
         <LogoLink />
-        <a className="btn-primary" href="/login">
-          Log in
-        </a>
+        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center" }}>
+          <LanguageSwitcher />
+          <a className="btn-primary" href="/login">
+            {t("login")}
+          </a>
+        </div>
       </nav>
 
       <section style={{ maxWidth: 480, margin: "3rem auto", padding: "0 1.5rem" }}>
-        <h1>Start your 7-day free trial</h1>
-        <p className="meta">
-          One flat monthly price after the trial. Connect your own Dexcom Share account, add up
-          to two phone numbers, and start receiving WhatsApp alerts and low-glucose phone calls
-          within minutes.
-        </p>
+        <h1>{t("title")}</h1>
+        <p className="meta">{t("subtitle")}</p>
 
         <div className="card" style={{ marginTop: "1.5rem" }}>
-          <h3 style={{ marginTop: 0 }}>Glucoalarm</h3>
+          <h3 style={{ marginTop: 0 }}>{t("planName")}</h3>
           <p style={{ fontSize: "2rem", fontWeight: 700, margin: "0.25rem 0" }}>
-            $59.99<span style={{ fontSize: "1rem", fontWeight: 400 }}> / month</span>
+            $59.99<span style={{ fontSize: "1rem", fontWeight: 400 }}> {t("priceSuffix")}</span>
           </p>
           <p className="meta" style={{ margin: "0 0 1rem" }}>
-            First 7 days free. Your card is charged starting day 8, then monthly until you
-            cancel.
+            {t("trialNote")}
           </p>
           <ul style={{ paddingLeft: "1.2rem", lineHeight: 1.8 }}>
-            <li>One monitored person, connected via Dexcom Share</li>
-            <li>WhatsApp alerts for lows, highs, and safe-range check-ins</li>
-            <li>Low-glucose phone call escalation, up to two contacts</li>
-            <li>Configurable thresholds and update cadence</li>
+            <li>{t("feature1")}</li>
+            <li>{t("feature2")}</li>
+            <li>{t("feature3")}</li>
+            <li>{t("feature4")}</li>
           </ul>
           <button className="btn-primary" onClick={onSubscribe} disabled={loading} style={{ width: "100%", marginTop: "1rem" }}>
-            {loading ? "Starting checkout..." : "Start free trial"}
+            {loading ? t("subscribing") : t("subscribe")}
           </button>
-          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>or</p>
+          <p className="meta" style={{ margin: "1rem 0", textAlign: "center" }}>{t("or")}</p>
           <a className="btn-secondary" href="/api/auth/google/start?intent=signup" style={{ display: "block", textAlign: "center", width: "100%" }}>
-            Sign up with Google
+            {t("googleSignup")}
           </a>
           {error && <p className="meta">{error}</p>}
         </div>
 
         <p className="meta" style={{ marginTop: "1.5rem" }}>
-          Glucoalarm is a notification tool, not a medical device. It does not calculate or
-          suggest insulin doses. After checkout, you&apos;ll set up your account and connect
-          Dexcom in a few short steps. See our <a href="/refund-policy">refund policy</a> and{" "}
-          <a href="/terms">terms</a>.
+          {t.rich("disclaimer", {
+            refundPolicy: (chunks) => <a href="/refund-policy">{chunks}</a>,
+            terms: (chunks) => <a href="/terms">{chunks}</a>,
+          })}
         </p>
       </section>
     </div>

@@ -1,4 +1,6 @@
+import { useTranslations } from "next-intl";
 import { LogoLink } from "./lib/Logo";
+import { LanguageSwitcher } from "./components/LanguageSwitcher";
 
 const STRUCTURED_DATA = {
   "@context": "https://schema.org",
@@ -18,38 +20,37 @@ const STRUCTURED_DATA = {
 };
 
 export default function MarketingPage() {
+  const t = useTranslations("marketing");
   return (
     <div className="marketing">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
       <nav className="marketing-nav">
         <LogoLink isHomePage />
         <div className="marketing-nav-links">
-          <a href="/signup">Pricing</a>
-          <a href="/docs">Docs</a>
-          <a href="/support">Support</a>
-          <a href="/contact">Contact</a>
+          <a href="/signup">{t("nav.pricing")}</a>
+          <a href="/docs">{t("nav.docs")}</a>
+          <a href="/support">{t("nav.support")}</a>
+          <a href="/contact">{t("nav.contact")}</a>
         </div>
         <div style={{ display: "flex", gap: "1.25rem", alignItems: "center" }}>
+          <LanguageSwitcher />
           <a href="/login" style={{ color: "var(--text-dim)", fontSize: "0.9rem", textDecoration: "none" }}>
-            Log in
+            {t("nav.login")}
           </a>
           <a className="btn-primary" href="/signup">
-            Sign up
+            {t("nav.signup")}
           </a>
         </div>
       </nav>
 
       <section className="marketing-hero">
         <div className="hero-copy">
-          <span className="hero-eyebrow">Glucose monitoring, reimagined</span>
-          <h1>Glucose alerts that reach you before it&apos;s urgent.</h1>
-          <p>
-            Connect your own Dexcom Share account and get WhatsApp alerts the moment glucose
-            leaves the safe range, plus phone call escalation for lows -- so nothing gets missed.
-          </p>
+          <span className="hero-eyebrow">{t("hero.eyebrow")}</span>
+          <h1>{t("hero.title")}</h1>
+          <p>{t("hero.body")}</p>
           <div className="hero-actions">
             <a className="btn-primary" href="/signup">
-              Get started
+              {t("hero.cta")}
             </a>
           </div>
         </div>
@@ -73,88 +74,80 @@ export default function MarketingPage() {
             <circle className="trace-dot" cx="400" cy="135" r="5" fill="var(--status-green)" />
           </svg>
           <p className="meta" style={{ marginTop: "0.75rem" }}>
-            Example trace across a safe, high, and low reading
+            {t("hero.traceCaption")}
           </p>
         </div>
       </section>
 
       <div className="trust-strip">
-        <span>7-day free trial, no card charged until day 8</span>
-        <span>Cancel anytime from Settings</span>
-        <span>Your Dexcom credentials, encrypted and never shared</span>
+        <span>{t("trustStrip.trial")}</span>
+        <span>{t("trustStrip.cancel")}</span>
+        <span>{t("trustStrip.credentials")}</span>
       </div>
 
       <section className="steps">
         <div className="step">
           <span className="step-num">1</span>
-          <h3>Connect Dexcom</h3>
-          <p>Enter your Dexcom Share login once. Readings start flowing in under a minute.</p>
+          <h3>{t("steps.title1")}</h3>
+          <p>{t("steps.body1")}</p>
         </div>
         <div className="step">
           <span className="step-num">2</span>
-          <h3>Set your ranges</h3>
-          <p>Choose the safe range and critical cutoffs for each person, in mg/dL.</p>
+          <h3>{t("steps.title2")}</h3>
+          <p>{t("steps.body2")}</p>
         </div>
         <div className="step">
           <span className="step-num">3</span>
-          <h3>Get alerted on WhatsApp</h3>
-          <p>
-            Messages arrive at the pace the number calls for: none in range, every five minutes
-            in a low or high, every minute when it&apos;s critical.
-          </p>
+          <h3>{t("steps.title3")}</h3>
+          <p>{t("steps.body3")}</p>
         </div>
       </section>
 
       <section className="features-bento">
         <div className="bento-cell tall">
-          <h3>Alerts that scale with urgency</h3>
-          <p>The message rate follows how far outside the safe range a reading is.</p>
+          <h3>{t("features.scaleTitle")}</h3>
+          <p>{t("features.scaleBody")}</p>
           <div className="tier-bands">
             <div className="tier-band" style={{ background: "rgba(229,72,77,0.15)" }}>
-              <span>Critical</span>
-              <span>every 1 min</span>
+              <span>{t("features.tierCritical")}</span>
+              <span>{t("features.tierCriticalRate")}</span>
             </div>
             <div className="tier-band" style={{ background: "rgba(245,165,36,0.15)" }}>
-              <span>Low or high</span>
-              <span>every 5 min</span>
+              <span>{t("features.tierLowHigh")}</span>
+              <span>{t("features.tierLowHighRate")}</span>
             </div>
             <div className="tier-band" style={{ background: "rgba(47,185,106,0.15)" }}>
-              <span>Safe range</span>
-              <span>silent</span>
+              <span>{t("features.tierSafe")}</span>
+              <span>{t("features.tierSafeRate")}</span>
             </div>
           </div>
         </div>
         <div className="bento-cell plain">
-          <h3>Set up in minutes</h3>
-          <p>Connect your own Dexcom Share login, add up to two alert contacts, and set your ranges -- no phone calls to a support line required.</p>
+          <h3>{t("features.setupTitle")}</h3>
+          <p>{t("features.setupBody")}</p>
         </div>
         <div className="bento-cell plain">
-          <h3>Weekly and monthly reports</h3>
-          <p>See when spikes and lows tend to happen, so patterns are easy to spot and discuss.</p>
+          <h3>{t("features.reportsTitle")}</h3>
+          <p>{t("features.reportsBody")}</p>
         </div>
       </section>
 
       <section className="safety">
-        <h2>Information, not instructions.</h2>
-        <p>
-          Glucoalarm logs carb counts and insulin doses, and can show the math for a
-          correction factor you enter yourself, as prescribed by your doctor. It does not
-          calculate or suggest insulin doses. Dosing decisions stay with you and your care
-          team.
-        </p>
+        <h2>{t("safety.title")}</h2>
+        <p>{t("safety.body")}</p>
       </section>
 
       <footer className="marketing-footer">
         <div className="marketing-footer-inner">
           <span>Glucoalarm</span>
           <div style={{ display: "flex", gap: "1.5rem" }}>
-            <a href="/login">Log in</a>
-            <a href="/signup">Pricing</a>
-            <a href="/docs">Docs</a>
-            <a href="/support">Support</a>
-            <a href="/contact">Contact</a>
-            <a href="/terms">Terms</a>
-            <a href="/refund-policy">Refunds</a>
+            <a href="/login">{t("footer.login")}</a>
+            <a href="/signup">{t("footer.pricing")}</a>
+            <a href="/docs">{t("footer.docs")}</a>
+            <a href="/support">{t("footer.support")}</a>
+            <a href="/contact">{t("footer.contact")}</a>
+            <a href="/terms">{t("footer.terms")}</a>
+            <a href="/refund-policy">{t("footer.refunds")}</a>
           </div>
         </div>
       </footer>

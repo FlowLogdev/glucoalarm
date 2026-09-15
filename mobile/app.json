@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "GlucoAlarm",
+    "slug": "glucoalarm",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.flowlogdev.glucoalarm",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.flowlogdev.glucoalarm",
+      "adaptiveIcon": {
+        "backgroundColor": "#05070A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-localization"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "be245bae-ea1f-424b-b89d-33c2d343c0fc"
+      }
+    },
+    "owner": "rankcore"
+  }
+}
