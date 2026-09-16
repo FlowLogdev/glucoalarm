@@ -147,6 +147,7 @@ export default function MarketingPage() {
             <a href="/support">{t("footer.support")}</a>
             <a href="/contact">{t("footer.contact")}</a>
             <a href="/terms">{t("footer.terms")}</a>
+            <a href="/privacy">{t("footer.privacy")}</a>
             <a href="/refund-policy">{t("footer.refunds")}</a>
           </div>
         </div>
