@@ -49,7 +49,7 @@
     },
     "safety": {
       "title": "Information, not instructions.",
-      "body": "Glucoalarm logs carb counts and insulin doses, and can show the math for a correction factor you enter yourself, as prescribed by your doctor. It does not calculate or suggest insulin doses. Dosing decisions stay with you and your care team."
+      "body": "Glucoalarm shows shared glucose data, trends, reports, and caregiver alerts. It does not collect, display, calculate, or recommend insulin doses. Treatment decisions stay with you and your care team."
     },
     "footer": {
       "login": "Log in",

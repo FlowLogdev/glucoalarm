@@ -7,6 +7,7 @@ import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { normalizeCallLanguage } from "./lib/voice-i18n";
 import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
+import { updateMobileAlertEpisode } from "./mobile-alerts";
 import type { Env } from "./types";
 
 export interface PersonRow extends Person {
@@ -159,6 +160,11 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   const tier = classifyTier(person, value);
   const isLowTier = tier === "warn_low" || tier === "critical_low";
 
+  // Native notifications are a separate acknowledgement workflow from
+  // WhatsApp/SMS/voice. This must run even when the normal message cooldown
+  // says there is no new alert, so an unacknowledged mobile episode repeats.
+  await updateMobileAlertEpisode(env, person, value, trend, recordedAt, now);
+
   // Reset low-call escalation state as soon as we're back in a safe tier,
   // regardless of whether a "recovered" message also happens to fire this
   // poll -- otherwise a future low episode could inherit a stale
@@ -174,10 +180,10 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
   const allSubscribers = await env.DB
     .prepare(
-      `SELECT phone_number, call_on_low, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT phone_number, call_on_low, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(person.id)
-    .all<{ phone_number: string; call_on_low: number; call_language: string } & SubscriberSchedule>();
+    .all<{ phone_number: string; call_on_low: number; call_language: string; whatsapp_enabled: number } & SubscriberSchedule>();
 
   // Schedule only gates outbound pushes (alerts/ticker/calls) -- it never
   // affects the WhatsApp/voice bots, a caregiver can always ask on demand.
@@ -212,6 +218,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
         if (!isInCooldown(now, "fast_drop_warning", lastFastDropAlert?.sent_at ?? null)) {
           const fastDropVariables = alertVariables("fast_drop_warning", person.name, value, trend, person.stale_minutes, time);
           for (const sub of subscribers.results) {
+            if (!sub.whatsapp_enabled) continue;
             try {
               await sendWhatsApp(sub.phone_number, fastDropVariables, env);
             } catch (err) {
@@ -232,6 +239,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
         const variables = tickerVariables(person.name, value, trend, time);
         let sentAnyone = false;
         for (const sub of subscribers.results) {
+          if (!sub.whatsapp_enabled) continue;
           try {
             await sendWhatsApp(sub.phone_number, variables, env);
             sentAnyone = true;
@@ -265,6 +273,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   const variables = alertVariables(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {
+    if (!sub.whatsapp_enabled) continue;
     try {
       await sendWhatsApp(sub.phone_number, variables, env);
     } catch (err) {

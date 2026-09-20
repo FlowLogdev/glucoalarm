@@ -6,9 +6,6 @@ export interface Person {
   critical_low: number;
   critical_high: number;
   stale_minutes: number;
-  carb_ratio: number | null;
-  correction_factor: number | null;
-  target_glucose: number | null;
   timezone: string | null;
   ticker_interval_minutes?: number;
   report_email_address?: string | null;
@@ -19,17 +16,6 @@ export interface Person {
 export interface Insight {
   summary: string;
   generated_at: number;
-}
-
-export interface InsulinLogEntry {
-  id: number;
-  person_id: string;
-  logged_at: number;
-  carbs_grams: number | null;
-  food_description: string | null;
-  glucose_at_dose: number | null;
-  dose_units: number | null;
-  note: string | null;
 }
 
 export interface Reading {
@@ -84,6 +70,7 @@ export interface Subscriber {
   call_on_low: number;
   call_priority: number;
   call_language: CallLanguage;
+  whatsapp_enabled: number;
   active_start_minute: number | null;
   active_end_minute: number | null;
   active_days: string | null;
@@ -154,6 +141,13 @@ export function updateSubscriberCallLanguage(id: number, callLanguage: CallLangu
   });
 }
 
+export function updateSubscriberWhatsapp(id: number, enabled: boolean): Promise<{ ok: true }> {
+  return apiFetch<{ ok: true }>(`/subscribers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ whatsapp_enabled: enabled }),
+  });
+}
+
 export function updateThresholds(
   personId: string,
   safeLow: number,
@@ -173,52 +167,6 @@ export function updateThresholds(
       stale_minutes: staleMinutes,
     }),
   });
-}
-
-export function updateDosingSettings(
-  personId: string,
-  carbRatio: number | null,
-  correctionFactor: number | null,
-  targetGlucose: number | null
-): Promise<{ ok: true }> {
-  return apiFetch<{ ok: true }>("/settings/dosing", {
-    method: "POST",
-    body: JSON.stringify({
-      person_id: personId,
-      carb_ratio: carbRatio,
-      correction_factor: correctionFactor,
-      target_glucose: targetGlucose,
-    }),
-  });
-}
-
-export function getInsulinLog(personId: string, hours = 720): Promise<InsulinLogEntry[]> {
-  return apiFetch<InsulinLogEntry[]>(`/insulin-log?person_id=${encodeURIComponent(personId)}&hours=${hours}`);
-}
-
-export function addInsulinLogEntry(entry: {
-  personId: string;
-  carbsGrams: number | null;
-  foodDescription: string;
-  glucoseAtDose: number | null;
-  doseUnits: number | null;
-  note: string;
-}): Promise<{ id: number }> {
-  return apiFetch<{ id: number }>("/insulin-log", {
-    method: "POST",
-    body: JSON.stringify({
-      person_id: entry.personId,
-      carbs_grams: entry.carbsGrams,
-      food_description: entry.foodDescription || null,
-      glucose_at_dose: entry.glucoseAtDose,
-      dose_units: entry.doseUnits,
-      note: entry.note || null,
-    }),
-  });
-}
-
-export function removeInsulinLogEntry(id: number): Promise<{ ok: true }> {
-  return apiFetch<{ ok: true }>(`/insulin-log/${id}`, { method: "DELETE" });
 }
 
 export interface A1CEstimate {

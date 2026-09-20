@@ -9,7 +9,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Logo size={24} />
         </a>
         <a href="/dashboard">Dashboard</a>
-        <a href="/log">Log</a>
         <a href="/reports">Reports</a>
         <a href="/settings">Settings</a>
         <a href="/billing">Billing</a>

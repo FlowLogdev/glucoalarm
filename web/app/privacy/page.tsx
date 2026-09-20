@@ -75,12 +75,6 @@ export default function PrivacyPage() {
           <li>Average glucose</li>
           <li>Time in range</li>
           <li>Estimated A1C, GMI, or similar calculated metrics</li>
-          <li>Carbohydrate information</li>
-          <li>Insulin information</li>
-          <li>Meal information</li>
-          <li>Medication information you choose to enter</li>
-          <li>Exercise or activity information you choose to enter</li>
-          <li>Notes and other information you choose to provide</li>
           <li>Glucose reports</li>
           <li>Weekly and monthly summaries</li>
           <li>Patterns and trends generated from your glucose information</li>
@@ -128,20 +122,10 @@ export default function PrivacyPage() {
         </p>
 
         <h2>4. Information You Enter Manually</h2>
-        <p>You may choose to enter additional information into GlucoAlarm, including:</p>
-        <ul>
-          <li>Carbohydrates</li>
-          <li>Insulin</li>
-          <li>Meals</li>
-          <li>Medications</li>
-          <li>Notes</li>
-          <li>Health observations</li>
-          <li>Glucose-related events</li>
-          <li>Other information relating to your health management</li>
-        </ul>
         <p>
-          You are not required to provide optional information unless it is necessary for a
-          feature you choose to use.
+          GlucoAlarm does not accept manual medication, meal, carbohydrate, or insulin entries.
+          It uses the glucose information available through the connected service and the alert
+          contacts and settings you provide.
         </p>
 
         <h2>5. Caregivers, Family Members, Emergency Contacts, and Healthcare Professionals</h2>
@@ -725,12 +709,6 @@ export default function PrivacyPage() {
           <li>Time-in-range information</li>
           <li>Average glucose</li>
           <li>Estimated A1C, GMI, and similar calculated metrics</li>
-          <li>Carbohydrate information</li>
-          <li>Insulin information</li>
-          <li>Meal information</li>
-          <li>Medication information you choose to provide</li>
-          <li>Exercise or activity information you choose to provide</li>
-          <li>Health notes</li>
           <li>CGM information</li>
           <li>Information obtained from a connected health service</li>
           <li>Reports derived from health information</li>

@@ -9,10 +9,11 @@ import { getReportCsv } from "./csv";
 import { generateInsight, getCachedInsight } from "./insights";
 import { postSignupCheckout, postSignupComplete, postSignupCompleteGoogle, postPeople } from "./signup";
 import { getBilling, postBillingPortal } from "./billing";
-import { getTickets, getTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
+import { closeCustomerTicket, getTickets, getTicket, patchCustomerTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
 import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type ReportPerson } from "./reports-generator";
 import { isValidCallLanguage } from "./lib/voice-i18n";
+import { acknowledgeMobileAlert, getActiveMobileAlert, registerMobilePushDevice } from "./mobile-alerts";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 8, 10, 15, 20, 30, 60]);
@@ -40,16 +41,6 @@ async function assertOwnsSubscriber(env: Env, admin: Admin, subscriberId: string
 function requireWriteAccess(admin: Admin): Response | null {
   if (admin.role === "doctor") return jsonResponse({ error: "forbidden", detail: "Doctor accounts are read-only." }, 403);
   return null;
-}
-
-/** Same ownership check, but by insulin_log row id. */
-async function assertOwnsInsulinLogEntry(env: Env, admin: Admin, entryId: string): Promise<boolean> {
-  if (admin.is_super_admin) return true;
-  const row = await env.DB
-    .prepare(`SELECT people.customer_id as customer_id FROM insulin_log JOIN people ON people.id = insulin_log.person_id WHERE insulin_log.id = ?`)
-    .bind(entryId)
-    .first<{ customer_id: string | null }>();
-  return !!row && row.customer_id === admin.customer_id;
 }
 
 type Status = Tier | "stale" | "no_data";
@@ -158,7 +149,7 @@ async function getReportRoute(env: Env, personId: string, periodParam: string | 
 async function getSubscribers(env: Env, personId: string): Promise<Response> {
   const subs = await env.DB
     .prepare(
-      `SELECT id, person_id, phone_number, label, call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
+      `SELECT id, person_id, phone_number, label, call_on_low, call_priority, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE person_id = ? ORDER BY call_priority ASC`
     )
     .bind(personId)
     .all();
@@ -200,35 +191,6 @@ async function postThresholds(env: Env, request: Request, admin: Admin): Promise
       `UPDATE people SET safe_low = ?, safe_high = ?, critical_low = ?, critical_high = ?, stale_minutes = ? WHERE id = ?`
     )
     .bind(safe_low, safe_high, critical_low, critical_high, stale_minutes, person_id)
-    .run();
-  if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
-  return jsonResponse({ ok: true });
-}
-
-async function postDosingSettings(env: Env, request: Request, admin: Admin): Promise<Response> {
-  const body = await request.json<{
-    person_id?: string;
-    carb_ratio?: number | null;
-    correction_factor?: number | null;
-    target_glucose?: number | null;
-  }>();
-  if (!body.person_id) {
-    return jsonResponse({ error: "person_id is required" }, 400);
-  }
-  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
-  const carbRatio = body.carb_ratio ?? null;
-  const correctionFactor = body.correction_factor ?? null;
-  const targetGlucose = body.target_glucose ?? null;
-  if (
-    (carbRatio != null && carbRatio <= 0) ||
-    (correctionFactor != null && correctionFactor <= 0) ||
-    (targetGlucose != null && targetGlucose <= 0)
-  ) {
-    return jsonResponse({ error: "carb_ratio, correction_factor, and target_glucose must be positive" }, 400);
-  }
-  const result = await env.DB
-    .prepare(`UPDATE people SET carb_ratio = ?, correction_factor = ?, target_glucose = ? WHERE id = ?`)
-    .bind(carbRatio, correctionFactor, targetGlucose, body.person_id)
     .run();
   if (result.meta.changes === 0) return jsonResponse({ error: "person_not_found" }, 404);
   return jsonResponse({ ok: true });
@@ -309,62 +271,6 @@ async function postGenerateInsight(env: Env, request: Request, admin: Admin, now
   }
 }
 
-async function getInsulinLog(env: Env, personId: string, hours: number): Promise<Response> {
-  const since = Math.floor(Date.now() / 1000) - Math.round(hours * 3600);
-  const entries = await env.DB
-    .prepare(
-      `SELECT id, person_id, logged_at, carbs_grams, food_description, glucose_at_dose, dose_units, note
-       FROM insulin_log WHERE person_id = ? AND logged_at >= ? ORDER BY logged_at DESC`
-    )
-    .bind(personId, since)
-    .all();
-  return jsonResponse(entries.results);
-}
-
-async function postInsulinLog(env: Env, request: Request, admin: Admin, now: number): Promise<Response> {
-  const body = await request.json<{
-    person_id?: string;
-    logged_at?: number;
-    carbs_grams?: number | null;
-    food_description?: string | null;
-    glucose_at_dose?: number | null;
-    dose_units?: number | null;
-    note?: string | null;
-  }>();
-  if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
-  if (body.carbs_grams == null && body.dose_units == null) {
-    return jsonResponse({ error: "at least one of carbs_grams or dose_units is required" }, 400);
-  }
-  if ((body.carbs_grams != null && body.carbs_grams < 0) || (body.dose_units != null && body.dose_units < 0)) {
-    return jsonResponse({ error: "carbs_grams and dose_units must not be negative" }, 400);
-  }
-  if (!(await assertOwnsPerson(env, admin, body.person_id))) return jsonResponse({ error: "person_not_found" }, 404);
-
-  const result = await env.DB
-    .prepare(
-      `INSERT INTO insulin_log (person_id, logged_at, carbs_grams, food_description, glucose_at_dose, dose_units, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      body.person_id,
-      body.logged_at ?? now,
-      body.carbs_grams ?? null,
-      body.food_description ?? null,
-      body.glucose_at_dose ?? null,
-      body.dose_units ?? null,
-      body.note ?? null
-    )
-    .run();
-  return jsonResponse({ id: result.meta.last_row_id }, 201);
-}
-
-async function deleteInsulinLog(env: Env, id: string): Promise<Response> {
-  if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
-  const result = await env.DB.prepare(`DELETE FROM insulin_log WHERE id = ?`).bind(id).run();
-  if (result.meta.changes === 0) return jsonResponse({ error: "not_found" }, 404);
-  return jsonResponse({ ok: true });
-}
-
 const E164 = /^\+[1-9]\d{6,14}$/;
 const ACTIVE_DAYS_RE = /^[0-6](,[0-6]){0,6}$/;
 
@@ -401,6 +307,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
     call_on_low?: boolean;
     call_priority?: number;
     call_language?: string;
+    whatsapp_enabled?: boolean;
     active_start_minute?: number | null;
     active_end_minute?: number | null;
     active_days?: string | null;
@@ -437,7 +344,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
 
   const result = await env.DB
     .prepare(
-      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO phone_subscribers (person_id, phone_number, label, call_on_low, call_priority, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       body.person_id,
@@ -446,6 +353,7 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
       body.call_on_low ? 1 : 0,
       body.call_priority ?? 0,
       body.call_language ?? "en",
+      body.whatsapp_enabled != null ? (body.whatsapp_enabled ? 1 : 0) : 1,
       schedule.active_start_minute,
       schedule.active_end_minute,
       schedule.active_days
@@ -460,25 +368,33 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
     call_on_low?: boolean;
     call_priority?: number;
     call_language?: string;
+    whatsapp_enabled?: boolean;
     active_start_minute?: number | null;
     active_end_minute?: number | null;
     active_days?: string | null;
   }>();
   const hasScheduleField = "active_start_minute" in body || "active_end_minute" in body || "active_days" in body;
-  if (body.call_on_low == null && body.call_priority == null && body.call_language == null && !hasScheduleField) {
-    return jsonResponse({ error: "call_on_low, call_priority, call_language, or a schedule field is required" }, 400);
+  if (
+    body.call_on_low == null &&
+    body.call_priority == null &&
+    body.call_language == null &&
+    body.whatsapp_enabled == null &&
+    !hasScheduleField
+  ) {
+    return jsonResponse({ error: "call_on_low, call_priority, call_language, whatsapp_enabled, or a schedule field is required" }, 400);
   }
   if (body.call_language != null && !isValidCallLanguage(body.call_language)) {
     return jsonResponse({ error: "call_language must be one of en, es, pt" }, 400);
   }
 
   const current = await env.DB
-    .prepare(`SELECT call_on_low, call_priority, call_language, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
+    .prepare(`SELECT call_on_low, call_priority, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
     .bind(id)
     .first<{
       call_on_low: number;
       call_priority: number;
       call_language: string;
+      whatsapp_enabled: number;
       active_start_minute: number | null;
       active_end_minute: number | null;
       active_days: string | null;
@@ -492,12 +408,13 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
 
   const result = await env.DB
     .prepare(
-      `UPDATE phone_subscribers SET call_on_low = ?, call_priority = ?, call_language = ?, active_start_minute = ?, active_end_minute = ?, active_days = ? WHERE id = ?`
+      `UPDATE phone_subscribers SET call_on_low = ?, call_priority = ?, call_language = ?, whatsapp_enabled = ?, active_start_minute = ?, active_end_minute = ?, active_days = ? WHERE id = ?`
     )
     .bind(
       body.call_on_low != null ? (body.call_on_low ? 1 : 0) : current.call_on_low,
       body.call_priority ?? current.call_priority,
       body.call_language ?? current.call_language,
+      body.whatsapp_enabled != null ? (body.whatsapp_enabled ? 1 : 0) : current.whatsapp_enabled,
       schedule.active_start_minute,
       schedule.active_end_minute,
       schedule.active_days,
@@ -640,6 +557,27 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     const status = await getStatus(env, personId, now);
     if (!status) return jsonResponse({ error: "person_not_found" }, 404);
     return jsonResponse(status);
+  }
+
+  if (method === "POST" && path === "/api/mobile/push-devices") {
+    const body = await request.json<{ token?: string; platform?: string }>();
+    if (!body.token || !body.platform) return jsonResponse({ error: "token and platform are required" }, 400);
+    const registered = await registerMobilePushDevice(env, a, body.token, body.platform, now);
+    return registered ? jsonResponse({ ok: true }) : jsonResponse({ error: "invalid_push_token" }, 400);
+  }
+
+  if (method === "GET" && path === "/api/mobile/alerts/active") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    return jsonResponse(await getActiveMobileAlert(env, personId));
+  }
+
+  const mobileAlertAckMatch = /^\/api\/mobile\/alerts\/(\w+)\/acknowledge$/.exec(path);
+  if (method === "POST" && mobileAlertAckMatch) {
+    const personId = mobileAlertAckMatch[1];
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    return jsonResponse({ acknowledged: await acknowledgeMobileAlert(env, personId, a.id, now) });
   }
 
   if (method === "POST" && path === "/api/restart-service") {
@@ -832,12 +770,6 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     return postThresholds(env, request, a);
   }
 
-  if (method === "POST" && path === "/api/settings/dosing") {
-    const writeGuard = requireWriteAccess(a);
-    if (writeGuard) return writeGuard;
-    return postDosingSettings(env, request, a);
-  }
-
   if (method === "POST" && path === "/api/settings/timezone") {
     const writeGuard = requireWriteAccess(a);
     if (writeGuard) return writeGuard;
@@ -883,28 +815,6 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     return patchSubscriber(env, subscriberPatchMatch[1], request);
   }
 
-  if (method === "GET" && path === "/api/insulin-log") {
-    const personId = url.searchParams.get("person_id");
-    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
-    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
-    const hours = Number(url.searchParams.get("hours") ?? "720");
-    return getInsulinLog(env, personId, Number.isFinite(hours) && hours > 0 ? hours : 720);
-  }
-
-  if (method === "POST" && path === "/api/insulin-log") {
-    const writeGuard = requireWriteAccess(a);
-    if (writeGuard) return writeGuard;
-    return postInsulinLog(env, request, a, now);
-  }
-
-  const insulinLogDeleteMatch = /^\/api\/insulin-log\/(\w+)$/.exec(path);
-  if (method === "DELETE" && insulinLogDeleteMatch) {
-    const writeGuard = requireWriteAccess(a);
-    if (writeGuard) return writeGuard;
-    if (!(await assertOwnsInsulinLogEntry(env, a, insulinLogDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
-    return deleteInsulinLog(env, insulinLogDeleteMatch[1]);
-  }
-
   if (method === "GET" && path === "/api/billing") {
     return getBilling(env, a);
   }
@@ -930,7 +840,13 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
 
   const ticketPatchMatch = /^\/api\/support\/tickets\/(\w+)$/.exec(path);
   if (method === "PATCH" && ticketPatchMatch) {
-    return patchTicketStatus(env, a, ticketPatchMatch[1], request, now);
+    const body = await request.clone().json<{ status?: string }>().catch((): { status?: string } => ({}));
+    return body.status ? patchTicketStatus(env, a, ticketPatchMatch[1], request, now) : patchCustomerTicket(env, a, ticketPatchMatch[1], request, now);
+  }
+
+  const ticketCloseMatch = /^\/api\/support\/tickets\/(\w+)\/close$/.exec(path);
+  if (method === "POST" && ticketCloseMatch) {
+    return closeCustomerTicket(env, a, ticketCloseMatch[1], now);
   }
 
   const ticketReplyMatch = /^\/api\/support\/tickets\/(\w+)\/reply$/.exec(path);

@@ -8,31 +8,30 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 const MAX_DESCRIPTION_LENGTH = 5000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const escapeHtml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
 
 /**
- * Ticket numbers look like Gluco-10000-260910 (sequence-YYMMDD of creation).
- * The sequence restarts at 10000 every calendar year via an atomic
- * INSERT ... ON CONFLICT DO UPDATE ... RETURNING against a per-year row --
- * D1/SQLite runs that as one statement, so concurrent submissions can't
- * collide on the same number.
+ * Ticket numbers look like Gluco-2000-09152026 (sequence-MMDDYYYY). Each
+ * calendar day's sequence starts at 2000 and is atomically incremented, so
+ * the number shown to a customer is readable and still unique.
  */
 async function generateTicketNumber(env: Env, now: number): Promise<string> {
   const date = new Date(now * 1000);
   const year = date.getUTCFullYear();
-  const yy = String(year).slice(-2);
   const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(date.getUTCDate()).padStart(2, "0");
+  const dateKey = `${year}-${mm}-${dd}`;
 
   const row = await env.DB
     .prepare(
-      `INSERT INTO ticket_sequence (year, next_number) VALUES (?, 10001)
-       ON CONFLICT(year) DO UPDATE SET next_number = ticket_sequence.next_number + 1
+      `INSERT INTO support_ticket_daily_sequence (date_key, next_number) VALUES (?, 2001)
+       ON CONFLICT(date_key) DO UPDATE SET next_number = support_ticket_daily_sequence.next_number + 1
        RETURNING next_number - 1 AS assigned`
     )
-    .bind(year)
+    .bind(dateKey)
     .first<{ assigned: number }>();
 
-  return `Gluco-${row!.assigned}-${yy}${mm}${dd}`;
+  return `Gluco-${row!.assigned}-${mm}${dd}${year}`;
 }
 
 /**
@@ -82,7 +81,7 @@ export async function postPublicTicket(env: Env, request: Request, now: number):
     .run();
 
   try {
-    const escapedDescription = description.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    const escapedDescription = escapeHtml(description.trim());
     await sendEmail(
       env,
       email.trim(),
@@ -116,6 +115,20 @@ interface TicketRow {
   status: string;
   created_at: number;
   updated_at: number;
+  ticket_number: string | null;
+  email: string | null;
+}
+
+function ticketLabel(ticket: Pick<TicketRow, "id" | "ticket_number">): string {
+  return ticket.ticket_number ?? `Ticket #${ticket.id}`;
+}
+
+async function notifySupport(env: Env, ticket: TicketRow, event: string, html: string): Promise<void> {
+  try {
+    await sendEmail(env, "support@flowlog.dev", `${event}: ${ticketLabel(ticket)} — ${ticket.subject}`, html);
+  } catch (err) {
+    console.error(`support notification failed for ${ticketLabel(ticket)}:`, err);
+  }
 }
 
 async function assertOwnsTicket(env: Env, admin: Admin, ticketId: string): Promise<TicketRow | null> {
@@ -153,18 +166,74 @@ export async function postTicket(env: Env, admin: Admin, request: Request, now: 
     return jsonResponse({ error: "subject and message are required" }, 400);
   }
 
+  const ticketNumber = await generateTicketNumber(env, now);
   const result = await env.DB
     .prepare(`INSERT INTO support_tickets (customer_id, admin_id, subject, status, created_at, updated_at) VALUES (?, ?, ?, 'open', ?, ?)`)
     .bind(admin.customer_id, admin.id, body.subject.trim(), now, now)
     .run();
   const ticketId = result.meta.last_row_id;
 
+  await env.DB.prepare(`UPDATE support_tickets SET ticket_number = ?, email = ? WHERE id = ?`).bind(ticketNumber, admin.email, ticketId).run();
+
   await env.DB
     .prepare(`INSERT INTO support_ticket_messages (ticket_id, admin_id, is_staff, body, created_at) VALUES (?, ?, 0, ?, ?)`)
     .bind(ticketId, admin.id, body.message.trim(), now)
     .run();
 
-  return jsonResponse({ id: ticketId }, 201);
+  try {
+    const subject = body.subject.trim();
+    const message = escapeHtml(body.message.trim());
+    await sendEmail(
+      env,
+      "support@flowlog.dev",
+      `New ticket ${ticketNumber}: ${subject}`,
+      `<p>New GlucoAlarm support ticket from ${admin.email}.</p><p><strong>Ticket:</strong> ${ticketNumber}</p><p><strong>Subject:</strong> ${escapeHtml(subject)}</p><p><strong>Message:</strong><br>${message}</p>`
+    );
+    await sendEmail(
+      env,
+      admin.email,
+      `We received your ticket ${ticketNumber}`,
+      `<p>Thanks for contacting GlucoAlarm support.</p><p>Your ticket number is <strong>${ticketNumber}</strong>.</p><p><strong>Subject:</strong> ${escapeHtml(subject)}</p><p><strong>Your message:</strong><br>${message}</p><p>Our team will reply to this email within 24 hours.</p>`
+    );
+  } catch (err) {
+    // A ticket must remain open even if an email provider is temporarily unavailable.
+    console.error(`postTicket: email send failed for ${ticketNumber}:`, err);
+  }
+
+  return jsonResponse({ id: ticketId, ticket_number: ticketNumber }, 201);
+}
+
+/** Customer edits update the original request and reopen the ticket for support. */
+export async function patchCustomerTicket(env: Env, admin: Admin, ticketId: string, request: Request, now: number): Promise<Response> {
+  if (admin.role === "doctor") return jsonResponse({ error: "forbidden" }, 403);
+  const ticket = await assertOwnsTicket(env, admin, ticketId);
+  if (!ticket) return jsonResponse({ error: "not_found" }, 404);
+  const body = await request.json<{ subject?: string; message?: string }>();
+  if (!body.subject?.trim() || !body.message?.trim()) return jsonResponse({ error: "subject and message are required" }, 400);
+
+  await env.DB.prepare(`UPDATE support_tickets SET subject = ?, status = 'open', updated_at = ? WHERE id = ?`).bind(body.subject.trim(), now, ticketId).run();
+  await env.DB
+    .prepare(`UPDATE support_ticket_messages SET body = ?, created_at = ? WHERE id = (SELECT id FROM support_ticket_messages WHERE ticket_id = ? AND is_staff = 0 ORDER BY created_at ASC LIMIT 1)`)
+    .bind(body.message.trim(), now, ticketId)
+    .run();
+  const updated = { ...ticket, subject: body.subject.trim(), status: "open", updated_at: now };
+  await notifySupport(env, updated, "Customer updated ticket", `<p>${escapeHtml(admin.email)} updated <strong>${ticketLabel(updated)}</strong> and reopened it.</p><p><strong>Message:</strong><br>${escapeHtml(body.message.trim())}</p>`);
+  return jsonResponse({ ok: true, ticket_number: ticketLabel(updated) });
+}
+
+export async function closeCustomerTicket(env: Env, admin: Admin, ticketId: string, now: number): Promise<Response> {
+  if (admin.role === "doctor") return jsonResponse({ error: "forbidden" }, 403);
+  const ticket = await assertOwnsTicket(env, admin, ticketId);
+  if (!ticket) return jsonResponse({ error: "not_found" }, 404);
+  await env.DB.prepare(`UPDATE support_tickets SET status = 'resolved', updated_at = ? WHERE id = ?`).bind(now, ticketId).run();
+  const updated = { ...ticket, status: "resolved", updated_at: now };
+  await notifySupport(env, updated, "Customer closed ticket", `<p>${escapeHtml(admin.email)} closed <strong>${ticketLabel(updated)}</strong>.</p>`);
+  try {
+    await sendEmail(env, admin.email, `Ticket ${ticketLabel(updated)} closed`, `<p>Your GlucoAlarm ticket <strong>${ticketLabel(updated)}</strong> is now closed.</p>`);
+  } catch (err) {
+    console.error(`ticket-close customer receipt failed for ${ticketLabel(updated)}:`, err);
+  }
+  return jsonResponse({ ok: true });
 }
 
 export async function postTicketReply(env: Env, admin: Admin, ticketId: string, request: Request, now: number): Promise<Response> {
@@ -187,6 +256,8 @@ export async function postTicketReply(env: Env, admin: Admin, ticketId: string, 
     .bind(now, newStatus, ticketId)
     .run();
 
+  await notifySupport(env, ticket, admin.is_super_admin ? "Support replied to ticket" : "Customer replied to ticket", `<p>${escapeHtml(admin.email)} added a reply to <strong>${ticketLabel(ticket)}</strong>.</p><p>${escapeHtml(body.message.trim())}</p>`);
+
   return jsonResponse({ ok: true }, 201);
 }
 
@@ -201,5 +272,6 @@ export async function patchTicketStatus(env: Env, admin: Admin, ticketId: string
   }
 
   await env.DB.prepare(`UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?`).bind(body.status, now, ticketId).run();
+  await notifySupport(env, { ...ticket, status: body.status, updated_at: now }, "Ticket status changed", `<p>${escapeHtml(admin.email)} changed <strong>${ticketLabel(ticket)}</strong> to <strong>${body.status}</strong>.</p>`);
   return jsonResponse({ ok: true });
 }

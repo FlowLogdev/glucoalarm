@@ -14,10 +14,10 @@ import {
   removeDoctor,
   removeSubscriber,
   restartService,
-  updateDosingSettings,
   updateReportEmailSettings,
   updateSubscriberCallLanguage,
   updateSubscriberSchedule,
+  updateSubscriberWhatsapp,
   updateThresholds,
   updateTickerInterval,
   updateTimezone,
@@ -186,76 +186,6 @@ function ThresholdForm({ person, onSaved, readOnly }: { person: Person; onSaved:
           />
         </label>
         <button type="submit">Save thresholds</button>
-        {status && <p className="meta">{status}</p>}
-      </fieldset>
-    </form>
-  );
-}
-
-function DosingForm({ person, onSaved, readOnly }: { person: Person; onSaved: () => void; readOnly: boolean }) {
-  const [carbRatio, setCarbRatio] = useState(person.carb_ratio?.toString() ?? "");
-  const [correctionFactor, setCorrectionFactor] = useState(person.correction_factor?.toString() ?? "");
-  const [targetGlucose, setTargetGlucose] = useState(person.target_glucose?.toString() ?? "");
-  const [status, setStatus] = useState<string | null>(null);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setStatus(null);
-    try {
-      await updateDosingSettings(
-        person.id,
-        carbRatio ? Number(carbRatio) : null,
-        correctionFactor ? Number(correctionFactor) : null,
-        targetGlucose ? Number(targetGlucose) : null
-      );
-      setStatus("Saved.");
-      onSaved();
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed to save");
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit}>
-      <fieldset disabled={readOnly} style={{ border: "none", padding: 0, margin: 0 }}>
-        <p className="meta">
-          Enter these exactly as prescribed by the patient&apos;s doctor. Used only for plain
-          arithmetic on the Log page, never AI-generated. Leave blank to hide the calculation.
-        </p>
-        <label>
-          Carb ratio (grams of carbs per 1 unit of insulin)
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={carbRatio}
-            onChange={(e) => setCarbRatio(e.target.value)}
-            placeholder="e.g. 10"
-          />
-        </label>
-        <label>
-          Correction factor (mg/dL drop per 1 unit)
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={correctionFactor}
-            onChange={(e) => setCorrectionFactor(e.target.value)}
-            placeholder="e.g. 40"
-          />
-        </label>
-        <label>
-          Target glucose for correction (mg/dL)
-          <input
-            type="number"
-            min="0"
-            step="1"
-            value={targetGlucose}
-            onChange={(e) => setTargetGlucose(e.target.value)}
-            placeholder="e.g. 150"
-          />
-        </label>
-        <button type="submit">Save dosing formula</button>
         {status && <p className="meta">{status}</p>}
       </fieldset>
     </form>
@@ -593,6 +523,37 @@ function CallLanguagePicker({ subscriber, readOnly, onSaved }: { subscriber: Sub
   );
 }
 
+function WhatsappToggle({ subscriber, readOnly, onSaved }: { subscriber: Subscriber; readOnly: boolean; onSaved: () => void }) {
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function onChange(checked: boolean) {
+    setStatus(null);
+    try {
+      await updateSubscriberWhatsapp(subscriber.id, checked);
+      onSaved();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  return (
+    <div style={{ marginTop: "0.4rem", paddingLeft: "0.25rem" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 400 }}>
+        <input
+          type="checkbox"
+          checked={!!subscriber.whatsapp_enabled}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={readOnly}
+        />
+        <span className="meta">
+          WhatsApp messages {subscriber.whatsapp_enabled ? "on" : "off"} (urgent low calls are unaffected)
+        </span>
+      </label>
+      {status && <p className="meta">{status}</p>}
+    </div>
+  );
+}
+
 function SubscriberManager({ personId, readOnly }: { personId: string; readOnly: boolean }) {
   const [subscribers, setSubscribers] = useState<Subscriber[] | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -644,6 +605,7 @@ function SubscriberManager({ personId, readOnly }: { personId: string; readOnly:
           </div>
           <ScheduleEditor subscriber={s} readOnly={readOnly} onSaved={refresh} />
           <CallLanguagePicker subscriber={s} readOnly={readOnly} onSaved={refresh} />
+          <WhatsappToggle subscriber={s} readOnly={readOnly} onSaved={refresh} />
         </div>
       ))}
       {subscribers?.length === 0 && <p className="meta">No phone numbers yet.</p>}
@@ -720,10 +682,6 @@ export default function SettingsPage() {
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Alert phone numbers</h3>
                 <SubscriberManager personId={person.id} readOnly={readOnly} />
-              </div>
-              <div className="card">
-                <h3 style={{ marginTop: 0 }}>Dosing formula</h3>
-                <DosingForm person={person} onSaved={refresh} readOnly={readOnly} />
               </div>
               <div className="card">
                 <h3 style={{ marginTop: 0 }}>Timezone</h3>

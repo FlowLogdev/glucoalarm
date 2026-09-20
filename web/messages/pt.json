@@ -49,7 +49,7 @@
     },
     "safety": {
       "title": "Informação, não instruções.",
-      "body": "O Glucoalarm registra contagens de carboidratos e doses de insulina, e pode mostrar o cálculo de um fator de correção que você mesmo insere, conforme prescrito pelo seu médico. Ele não calcula nem sugere doses de insulina. As decisões de dosagem continuam sendo suas e da sua equipe de cuidados."
+      "body": "O Glucoalarm mostra dados compartilhados de glicose, tendências, relatórios e alertas para cuidadores. Ele não coleta, exibe, calcula nem recomenda doses de insulina. As decisões de tratamento continuam sendo suas e da sua equipe de cuidados."
     },
     "footer": {
       "login": "Entrar",
