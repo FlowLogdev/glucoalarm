@@ -154,10 +154,12 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     newReadings = [];
   }
 
+  // OR IGNORE + the unique (person_id, recorded_at) index (migration 0033):
+  // a manual restart racing the cron would otherwise store the backlog twice.
   for (const r of newReadings) {
     await env.DB
       .prepare(
-        `INSERT INTO readings (person_id, value_mgdl, trend, recorded_at, received_at) VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO readings (person_id, value_mgdl, trend, recorded_at, received_at) VALUES (?, ?, ?, ?, ?)`
       )
       .bind(person.id, r.value, r.trend, r.timestamp, now)
       .run();

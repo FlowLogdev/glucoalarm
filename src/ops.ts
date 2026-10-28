@@ -39,17 +39,18 @@ export interface Diagnosis {
 }
 
 /** Rule-based: maps a logged error (or its absence) to a likely cause and fix. */
-export function diagnose(status: PersonStatus, message: string | null): Diagnosis | null {
+export function diagnose(status: PersonStatus, message: string | null, inDexcomBackoff = false): Diagnosis | null {
   if (status === "inactive") {
     return { severity: "info", cause: "Subscription is not active, so this person is not polled.", fix: "Nothing to fix unless the customer says they paid -- check Billing/Stripe/RevenueCat." };
   }
   if (status === "demo") return null;
 
   const severity = status === "down" || status === "no_data" ? "critical" : "warning";
+  // The backoff marker itself proves a 429, even if it predates error_log.
+  if (inDexcomBackoff || (message && /\(429\)|too many requests/i.test(message))) {
+    return { severity, cause: "Dexcom is rate-limiting logins for this account (HTTP 429).", fix: "Automatic: the poller waits 30 min between login attempts. If it lasts for hours, check that no other app (Sugarmate, Nightscout, xDrip, a watch app) logs in with this Dexcom username/password." };
+  }
   if (message) {
-    if (/\(429\)|too many requests/i.test(message)) {
-      return { severity, cause: "Dexcom is rate-limiting logins for this account (HTTP 429).", fix: "Automatic: the poller now waits 30 min between login attempts. If it lasts for hours, check that no other app (Sugarmate, Nightscout, xDrip, a watch app) logs in with this Dexcom username/password." };
-    }
     if (/AccountPasswordInvalid|invalid credentials/i.test(message)) {
       return { severity, cause: "Dexcom rejected the stored password.", fix: "The customer probably changed their Dexcom password -- get the new one from them and update it." };
     }
@@ -156,6 +157,10 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
         ? lastError
         : null;
 
+    // poll.ts's rate-limit backoff marker: null session + future expiry.
+    const dexcomRetryAfter =
+      !row.dexcom_session_id && row.dexcom_session_expires_at && row.dexcom_session_expires_at > now ? row.dexcom_session_expires_at : null;
+
     results.push({
       person_id: row.id,
       name: row.name,
@@ -166,11 +171,10 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
       last_reading_at: row.last_reading_at,
       last_value: row.last_value,
       status,
-      // poll.ts's rate-limit backoff marker: null session + future expiry.
-      dexcom_retry_after: !row.dexcom_session_id && row.dexcom_session_expires_at && row.dexcom_session_expires_at > now ? row.dexcom_session_expires_at : null,
+      dexcom_retry_after: dexcomRetryAfter,
       last_error: lastError ?? null,
       errors_24h: errors24h?.n ?? 0,
-      diagnosis: diagnose(status, relevantError?.message ?? null),
+      diagnosis: diagnose(status, relevantError?.message ?? null, dexcomRetryAfter != null),
     });
   }
   return results;
