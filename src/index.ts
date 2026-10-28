@@ -4,6 +4,7 @@ import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { handleRevenueCatWebhook } from "./revenuecat-webhook";
 import { checkAndGenerateReports } from "./reports-generator";
+import { pruneErrorLog } from "./ops";
 import { handleGoogleAuthStart, handleGoogleAuthCallback } from "./google-auth";
 import { handleWhatsAppInbound } from "./query-bot";
 import { handleVoiceInbound } from "./voice-bot";
@@ -16,6 +17,7 @@ export default {
     // generation check never runs on the same tick as Dexcom polling.
     if (event.cron === "0 4 * * *") {
       ctx.waitUntil(checkAndGenerateReports(env, Math.floor(Date.now() / 1000)));
+      ctx.waitUntil(pruneErrorLog(env, Math.floor(Date.now() / 1000)));
       return;
     }
     ctx.waitUntil(pollAll(env));

@@ -1,4 +1,5 @@
 import { LogoutButton } from "./logout-button";
+import { AdminNavLink } from "./admin-nav-link";
 import { Logo } from "../lib/Logo";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <a href="/docs" target="_blank" rel="noreferrer">
           Docs
         </a>
+        <AdminNavLink />
         <LogoutButton />
       </nav>
       <main>{children}</main>

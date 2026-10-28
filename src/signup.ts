@@ -80,6 +80,38 @@ export async function postSignupComplete(env: Env, request: Request, now: number
   return jsonResponse({ sessionId, expiresAt }, 201);
 }
 
+/**
+ * iOS creates an account before its Apple subscription is purchased. The
+ * account starts inactive, so it cannot start CGM monitoring or alerts until
+ * RevenueCat confirms the App Store subscription through the webhook.
+ */
+export async function postMobileSignup(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{ display_name?: string; email?: string; password?: string }>();
+  const displayName = body.display_name?.trim();
+  const email = body.email?.toLowerCase().trim();
+  if (!displayName || !email || !body.password) {
+    return jsonResponse({ error: "display_name, email, and password are required" }, 400);
+  }
+  if (!/^\S+@\S+\.\S+$/.test(email)) return jsonResponse({ error: "invalid_email" }, 400);
+  if (body.password.length < 8) return jsonResponse({ error: "password must be at least 8 characters" }, 400);
+
+  const existing = await env.DB.prepare(`SELECT id FROM admins WHERE email = ?`).bind(email).first();
+  if (existing) return jsonResponse({ error: "email_already_registered" }, 409);
+
+  const customerId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
+  const passwordHash = await hashPassword(body.password);
+  await env.DB.prepare(`INSERT INTO customers (id, display_name, created_at, subscription_status) VALUES (?, ?, ?, 'inactive')`).bind(customerId, displayName, now).run();
+  try {
+    await env.DB.prepare(`INSERT INTO admins (id, email, password_hash, is_super_admin, customer_id, created_at) VALUES (?, ?, ?, 0, ?, ?)`).bind(adminId, email, passwordHash, customerId, now).run();
+  } catch (error) {
+    await env.DB.prepare(`DELETE FROM customers WHERE id = ?`).bind(customerId).run();
+    throw error;
+  }
+  const { sessionId, expiresAt } = await createSession(env, adminId, now);
+  return jsonResponse({ sessionId, expiresAt }, 201);
+}
+
 function randomUnusablePassword(): string {
   // Google-authenticated admins never log in with a password, but
   // password_hash is NOT NULL -- this fills it with something no plaintext

@@ -7,13 +7,16 @@ import { getStatus, restartService } from "./status";
 import { postDoctorInvite, getDoctors, deleteDoctor } from "./doctors";
 import { getReportCsv } from "./csv";
 import { generateInsight, getCachedInsight } from "./insights";
-import { postSignupCheckout, postSignupComplete, postSignupCompleteGoogle, postPeople } from "./signup";
+import { postMobileSignup, postSignupCheckout, postSignupComplete, postSignupCompleteGoogle, postPeople } from "./signup";
+import { exchangeMobileAuthCode } from "./google-auth";
 import { getBilling, postBillingPortal } from "./billing";
 import { closeCustomerTicket, getTickets, getTicket, patchCustomerTicket, postTicket, postTicketReply, patchTicketStatus, postPublicTicket } from "./support";
 import { getA1CRecords, postA1CRecord, deleteA1CRecord } from "./a1c-records";
 import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type ReportPerson } from "./reports-generator";
 import { isValidCallLanguage } from "./lib/voice-i18n";
 import { acknowledgeMobileAlert, getActiveMobileAlert, registerMobilePushDevice } from "./mobile-alerts";
+import { getInsulinLogs } from "./insulin-log";
+import { getErrorLog, getLastCronRun, getUserCounts, scanHealth } from "./ops";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 8, 10, 15, 20, 30, 60]);
@@ -100,9 +103,14 @@ async function postLogout(env: Env, request: Request): Promise<Response> {
 }
 
 async function getPeople(env: Env, admin: Admin): Promise<Response> {
-  const people = admin.is_super_admin
-    ? await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<PersonWithDosing>()
-    : await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE customer_id = ?`).bind(admin.customer_id).all<PersonWithDosing>();
+  // The family support login is used for Felipe's live monitoring. Keep the
+  // segregated App Review demo out of its API response entirely so a native
+  // client can never default to demo data for that account.
+  const people = admin.email.toLowerCase() === "support@flowlog.dev"
+    ? await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE customer_id = ?`).bind(FELIPE_INTERNAL_CUSTOMER_ID).all<PersonWithDosing>()
+    : admin.is_super_admin
+      ? await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people`).all<PersonWithDosing>()
+      : await env.DB.prepare(`SELECT ${PERSON_COLUMNS} FROM people WHERE customer_id = ?`).bind(admin.customer_id).all<PersonWithDosing>();
   return jsonResponse(people.results);
 }
 
@@ -434,6 +442,8 @@ async function deleteSubscriber(env: Env, id: string): Promise<Response> {
 
 const PUBLIC_ROUTES = new Set([
   "POST /api/auth/login",
+  "POST /api/auth/mobile-exchange",
+  "POST /api/mobile/signup",
   "POST /api/signup/checkout",
   "POST /api/signup/complete",
   "POST /api/signup/complete-google",
@@ -474,6 +484,14 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
 
   if (method === "POST" && path === "/api/auth/login") {
     return postLogin(env, request, now);
+  }
+
+  if (method === "POST" && path === "/api/auth/mobile-exchange") {
+    return exchangeMobileAuthCode(env, request, now);
+  }
+
+  if (method === "POST" && path === "/api/mobile/signup") {
+    return postMobileSignup(env, request, now);
   }
 
   if (method === "POST" && path === "/api/auth/logout") {
@@ -591,6 +609,40 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     return jsonResponse(status);
   }
 
+  // Super-admin logs console (web /admin, logs.glucoalarm.com) -- every
+  // customer's health, the persisted error log, and user counts.
+  if (path.startsWith("/api/admin/")) {
+    if (!a.is_super_admin) return jsonResponse({ error: "forbidden" }, 403);
+
+    if (method === "GET" && path === "/api/admin/scan") {
+      const [health, counts, lastCronRun] = await Promise.all([scanHealth(env, now), getUserCounts(env, now), getLastCronRun(env)]);
+      return jsonResponse({ now, last_cron_run: lastCronRun, counts, people: health });
+    }
+
+    if (method === "GET" && path === "/api/admin/errors") {
+      const hours = Math.min(Math.max(Number(url.searchParams.get("hours")) || 24, 1), 24 * 30);
+      const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 200, 1), 1000);
+      const errors = await getErrorLog(env, {
+        since: now - hours * 3600,
+        personId: url.searchParams.get("person_id"),
+        source: url.searchParams.get("source"),
+        limit,
+      });
+      return jsonResponse(errors);
+    }
+
+    // Operator override: retries Dexcom now even during a rate-limit backoff.
+    if (method === "POST" && path === "/api/admin/retry") {
+      const body = await request.json<{ person_id?: string }>();
+      if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
+      const status = await restartService(env, body.person_id, now, true);
+      if (!status) return jsonResponse({ error: "person_not_found" }, 404);
+      return jsonResponse(status);
+    }
+
+    return jsonResponse({ error: "not_found" }, 404);
+  }
+
   if (method === "GET" && path === "/api/a1c") {
     const personId = url.searchParams.get("person_id");
     if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
@@ -598,6 +650,16 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     const estimates = await getA1CEstimates(env, personId, now);
     if (!estimates) return jsonResponse({ error: "person_not_found" }, 404);
     return jsonResponse(estimates);
+  }
+
+  if (method === "GET" && path === "/api/insulin-logs") {
+    const personId = url.searchParams.get("person_id");
+    if (!personId) return jsonResponse({ error: "person_id is required" }, 400);
+    if (!(await assertOwnsPerson(env, a, personId))) return jsonResponse({ error: "person_not_found" }, 404);
+    const person = await env.DB.prepare(`SELECT timezone FROM people WHERE id = ?`).bind(personId).first<{ timezone: string | null }>();
+    const requestedDays = Number(url.searchParams.get("days") ?? "1");
+    const days = Number.isFinite(requestedDays) ? Math.min(31, Math.max(1, Math.floor(requestedDays))) : 1;
+    return jsonResponse(await getInsulinLogs(env, personId, now, person?.timezone ?? "UTC", days));
   }
 
   if (method === "GET" && path === "/api/a1c-records") {

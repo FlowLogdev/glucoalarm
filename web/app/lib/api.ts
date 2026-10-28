@@ -25,6 +25,15 @@ export interface Reading {
   received_at?: number;
 }
 
+export interface InsulinLogEntry {
+  id: number;
+  logged_at: number;
+  insulin_type: "fast_acting" | "long_acting" | "unspecified";
+  dose_units: number;
+  glucose_at_dose: number | null;
+  glucose_recorded_at: number | null;
+}
+
 export type Status = "safe" | "warn_low" | "critical_low" | "warn_high" | "critical_high" | "stale" | "no_data";
 
 export type ReportPeriod = "week" | "biweek" | "month";
@@ -106,6 +115,10 @@ export function getLatestReading(personId: string): Promise<LatestReadingRespons
 
 export function getHistory(personId: string, hours: number): Promise<Reading[]> {
   return apiFetch<Reading[]>(`/readings/history?person_id=${encodeURIComponent(personId)}&hours=${hours}`);
+}
+
+export function getInsulinLogs(personId: string, days = 1): Promise<InsulinLogEntry[]> {
+  return apiFetch<InsulinLogEntry[]>(`/insulin-logs?person_id=${encodeURIComponent(personId)}&days=${days}`);
 }
 
 export function getSubscribers(personId: string): Promise<Subscriber[]> {
@@ -515,4 +528,66 @@ export async function completeSignupGoogle(sessionId: string, googleToken: strin
     };
     throw new Error(messages[body.error as string] ?? "Couldn't complete signup. Try again.");
   }
+}
+
+export type OpsPersonStatus = "ok" | "degraded" | "down" | "no_data" | "inactive" | "demo";
+
+export interface OpsDiagnosis {
+  severity: "critical" | "warning" | "info";
+  cause: string;
+  fix: string;
+}
+
+export interface OpsPersonHealth {
+  person_id: string;
+  name: string;
+  customer_id: string;
+  customer_name: string;
+  subscription_status: string;
+  subscribers: number;
+  last_reading_at: number | null;
+  last_value: number | null;
+  status: OpsPersonStatus;
+  dexcom_retry_after: number | null;
+  last_error: { source: string; message: string; created_at: number } | null;
+  errors_24h: number;
+  diagnosis: OpsDiagnosis | null;
+}
+
+export interface OpsScan {
+  now: number;
+  last_cron_run: number | null;
+  counts: {
+    customers_total: number;
+    customers_by_status: Record<string, number>;
+    logins: number;
+    monitored_people: number;
+    phone_subscribers: number;
+    signups_7d: number;
+    signups_30d: number;
+  };
+  people: OpsPersonHealth[];
+}
+
+export interface OpsErrorEntry {
+  id: number;
+  created_at: number;
+  source: string;
+  person_id: string | null;
+  message: string;
+}
+
+export function getOpsScan(): Promise<OpsScan> {
+  return apiFetch<OpsScan>("/admin/scan");
+}
+
+export function getOpsErrors(hours: number, personId?: string, source?: string): Promise<OpsErrorEntry[]> {
+  const params = new URLSearchParams({ hours: String(hours) });
+  if (personId) params.set("person_id", personId);
+  if (source) params.set("source", source);
+  return apiFetch<OpsErrorEntry[]>(`/admin/errors?${params}`);
+}
+
+export function retryOpsPerson(personId: string): Promise<{ status: string; detail: string }> {
+  return apiFetch<{ status: string; detail: string }>("/admin/retry", { method: "POST", body: JSON.stringify({ person_id: personId }) });
 }

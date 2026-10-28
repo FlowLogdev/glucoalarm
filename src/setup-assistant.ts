@@ -50,6 +50,9 @@ export async function postSetupAssistant(env: Env, request: Request): Promise<Re
         "Content-Type": "application/json",
         "x-api-key": env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
+        ...(env.ANTHROPIC_WORKSPACE_ID
+          ? { "anthropic-workspace-id": env.ANTHROPIC_WORKSPACE_ID }
+          : {}),
       },
       body: JSON.stringify({
         model: env.ANTHROPIC_MODEL,

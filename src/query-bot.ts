@@ -8,6 +8,7 @@ import { bucketByDayPeriod } from "./report-patterns";
 import { detectGlucoseEvents } from "./report-events";
 import { computeGlucoseStats } from "./report-stats";
 import { formatLocalTime, formatLocalDate } from "./lib/time-format";
+import { createInsulinLog, formatInsulinLoggedReply, formatInsulinStatusReply, getInsulinLogs, parseInsulinCommand } from "./insulin-log";
 import type { Env } from "./types";
 import type { ThresholdBand } from "./lib/alerts";
 
@@ -201,6 +202,25 @@ export async function handleWhatsAppInbound(request: Request, env: Env, now: num
     await sendFreeformWhatsApp(from, RATE_LIMITED, env).catch((err) =>
       console.error("handleWhatsAppInbound: rate-limit reply failed:", err)
     );
+    return emptyTwiml();
+  }
+
+  // Record and report insulin entries without passing them to conversational AI.
+  const insulinCommand = parseInsulinCommand(rawMessage);
+  if (insulinCommand) {
+    const timezone = person.timezone ?? "UTC";
+    const reply = insulinCommand.kind === "log"
+      ? formatInsulinLoggedReply(await createInsulinLog(env, person.id, insulinCommand.insulinType, insulinCommand.doseUnits, now), timezone)
+      : formatInsulinStatusReply(person.name, await getInsulinLogs(env, person.id, now, timezone), now, timezone);
+    await sendFreeformWhatsApp(from, reply, env).catch((err) => console.error("handleWhatsAppInbound: insulin-log reply failed:", err));
+    await env.DB.prepare(`INSERT INTO bot_queries (person_id, phone_number, raw_message, range_days, metric, responded_at, bot_reply) VALUES (?, ?, ?, 1, 'insulin_log', ?, ?)`)
+      .bind(person.id, from, rawMessage.slice(0, 500), now, reply).run();
+    return emptyTwiml();
+  }
+
+  if (/^\/?log\b/i.test(rawMessage)) {
+    const reply = "To record insulin, send: /log fast acting 3 or /log long acting 12. Send /log status for today's entries. Records only — GlucoAlarm does not recommend insulin doses.";
+    await sendFreeformWhatsApp(from, reply, env).catch((err) => console.error("handleWhatsAppInbound: insulin-log help failed:", err));
     return emptyTwiml();
   }
 

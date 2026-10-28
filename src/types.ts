@@ -11,6 +11,8 @@ export interface Env {
   WHATSAPP_TEMPLATE_SID: string; // approved Content Template SID, e.g. HX...; business-initiated, no 24h window restriction
   TWILIO_VOICE_FROM: string; // set via `wrangler secret put`, a Voice-capable Twilio number
   ANTHROPIC_API_KEY: string; // set via `wrangler secret put`
+  // Required when ANTHROPIC_API_KEY is organization-scoped; set via `wrangler secret put`.
+  ANTHROPIC_WORKSPACE_ID?: string;
   ANTHROPIC_MODEL: string; // e.g. "claude-haiku-4-5-20251001"
   PUBLIC_WORKER_URL: string; // this Worker's own public URL, for Twilio's <Gather> action callback
   PUBLIC_WEB_URL: string; // the Next.js app's public URL, for Stripe Checkout success/cancel redirects
@@ -22,4 +24,5 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string; // set via `wrangler secret put`
   GOOGLE_OAUTH_STATE_SECRET: string; // set via `wrangler secret put`, HMAC key for signing OAuth state + pending-signup tokens (any long random string)
   REVENUECAT_WEBHOOK_AUTHORIZATION: string; // exact Authorization value configured in RevenueCat's webhook integration
+  OPS_ALERT_PHONE?: string; // E.164 operator number paged by src/ops.ts when a customer's monitoring goes down
 }

@@ -47,6 +47,7 @@ async function verifyToken<T>(token: string, secret: string): Promise<T | null> 
 export interface OAuthState {
   intent: "signup" | "login";
   issuedAt: number;
+  native?: boolean;
 }
 
 const STATE_TTL_SECONDS = 10 * 60;
@@ -55,8 +56,8 @@ const STATE_TTL_SECONDS = 10 * 60;
 // not just the quick Google redirect dance.
 const PENDING_SIGNUP_TTL_SECONDS = 60 * 60;
 
-export async function createOAuthState(env: Env, intent: "signup" | "login", now: number): Promise<string> {
-  return signToken({ intent, issuedAt: now } satisfies OAuthState, env.GOOGLE_OAUTH_STATE_SECRET);
+export async function createOAuthState(env: Env, intent: "signup" | "login", now: number, native = false): Promise<string> {
+  return signToken({ intent, issuedAt: now, native } satisfies OAuthState, env.GOOGLE_OAUTH_STATE_SECRET);
 }
 
 export async function verifyOAuthState(env: Env, state: string, now: number): Promise<OAuthState | null> {

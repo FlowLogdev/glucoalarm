@@ -78,16 +78,22 @@ export async function getStatus(env: Env, personId: string, now: number): Promis
  * session, and poll immediately rather than waiting for the next 5-min
  * cron tick. Not a fake button -- both actions genuinely run.
  */
-export async function restartService(env: Env, personId: string, now: number): Promise<StatusResult | null> {
+export async function restartService(env: Env, personId: string, now: number, force = false): Promise<StatusResult | null> {
   const person = await env.DB.prepare(`SELECT * FROM people WHERE id = ?`).bind(personId).first<PersonRow>();
   if (!person) return null;
 
-  await env.DB
-    .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = NULL WHERE id = ?`)
-    .bind(personId)
-    .run();
-  person.dexcom_session_id = null;
-  person.dexcom_session_expires_at = null;
+  // Keep poll.ts's Dexcom rate-limit backoff (null session + future expiry)
+  // unless an operator forces it -- a customer mashing Restart would
+  // otherwise re-trigger the 429 the backoff is waiting out.
+  const inBackoff = !person.dexcom_session_id && !!person.dexcom_session_expires_at && now < person.dexcom_session_expires_at;
+  if (force || !inBackoff) {
+    await env.DB
+      .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = NULL WHERE id = ?`)
+      .bind(personId)
+      .run();
+    person.dexcom_session_id = null;
+    person.dexcom_session_expires_at = null;
+  }
 
   try {
     await pollPerson(person, env, now);

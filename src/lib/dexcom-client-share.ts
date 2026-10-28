@@ -24,6 +24,9 @@ export class DexcomSessionError extends Error {}
 /** Thrown for any other Dexcom API failure (bad credentials, network, unexpected shape). */
 export class DexcomApiError extends Error {}
 
+/** Thrown on HTTP 429 — Dexcom is rate-limiting this account; caller should back off, not retry. */
+export class DexcomRateLimitError extends DexcomApiError {}
+
 const SESSION_ERROR_CODES = new Set([
   "SessionNotValid",
   "SessionIdNotFound",
@@ -65,6 +68,9 @@ export class DexcomShareClient implements DexcomClient {
           : null;
       if (code && SESSION_ERROR_CODES.has(code)) {
         throw new DexcomSessionError(code);
+      }
+      if (res.status === 429) {
+        throw new DexcomRateLimitError(`Dexcom API error (429): ${text}`);
       }
       throw new DexcomApiError(`Dexcom API error (${res.status}): ${text}`);
     }

@@ -123,9 +123,12 @@ export default function PrivacyPage() {
 
         <h2>4. Information You Enter Manually</h2>
         <p>
-          GlucoAlarm does not accept manual medication, meal, carbohydrate, or insulin entries.
-          It uses the glucose information available through the connected service and the alert
-          contacts and settings you provide.
+          Authorized caregivers may choose to send an insulin administration record through a
+          verified WhatsApp number. We store the insulin type, units, date and time reported by
+          the caregiver, and the nearest available connected CGM reading when one is available.
+          These entries are historical records only: GlucoAlarm does not calculate, validate, or
+          recommend insulin doses. It otherwise uses the glucose information available through
+          the connected service and the alert contacts and settings you provide.
         </p>
 
         <h2>5. Caregivers, Family Members, Emergency Contacts, and Healthcare Professionals</h2>
@@ -225,8 +228,25 @@ export default function PrivacyPage() {
           <li>Questions or prompts submitted by the user</li>
         </ul>
         <p>
+          For the optional mobile AI insight currently offered by GlucoAlarm, we send Anthropic
+          the selected person&apos;s name, the requested report period, the total number of glucose
+          readings, counts of in-range, high, and low readings, and time-of-day pattern counts.
+          We do not send Dexcom credentials, caregiver phone numbers, alert settings, payment
+          details, or the person&apos;s full account profile for this feature.
+        </p>
+        <p>
+          Before the mobile app sends this information to Anthropic, it identifies Anthropic as
+          the recipient, describes the information to be sent, and asks for the user&apos;s permission.
+          If the user declines, no information is sent for that insight and all non-AI monitoring,
+          alerting, and reporting features remain available.
+        </p>
+        <p>
           We seek to limit information sent to AI providers to what is reasonably necessary to
           provide the requested feature.
+        </p>
+        <p>
+          We require service providers that process personal information on our behalf to protect
+          it in a manner consistent with this Privacy Policy and applicable law.
         </p>
         <p>We do not intentionally send information to AI providers for targeted advertising.</p>
         <p>AI systems can produce inaccurate, incomplete, or inappropriate results.</p>

@@ -7,6 +7,7 @@ import {
 } from "./lib/google-oauth";
 import { createCheckoutSession } from "./lib/stripe";
 import { createSession } from "./auth";
+import { hashPassword } from "./lib/password";
 import type { Env } from "./types";
 
 function redirect(url: string): Response {
@@ -17,8 +18,50 @@ function redirect(url: string): Response {
 export async function handleGoogleAuthStart(request: Request, env: Env, now: number): Promise<Response> {
   const url = new URL(request.url);
   const intent = url.searchParams.get("intent") === "login" ? "login" : "signup";
-  const state = await createOAuthState(env, intent, now);
+  const state = await createOAuthState(env, intent, now, url.searchParams.get("native") === "1");
   return redirect(buildGoogleAuthUrl(env, state));
+}
+
+async function createMobileAuthCode(env: Env, sessionId: string, now: number): Promise<string> {
+  const code = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO mobile_auth_grants (code, session_id, expires_at) VALUES (?, ?, ?)`).bind(code, sessionId, now + 5 * 60).run();
+  return code;
+}
+
+async function nativeRedirect(env: Env, sessionId: string, now: number): Promise<Response> {
+  const code = await createMobileAuthCode(env, sessionId, now);
+  return redirect(`glucoalarm://auth?code=${encodeURIComponent(code)}`);
+}
+
+function nativeError(error: string): Response {
+  return redirect(`glucoalarm://auth?error=${encodeURIComponent(error)}`);
+}
+
+function randomUnusablePassword(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0")).join("");
+}
+
+async function provisionNativeGoogleAccount(env: Env, email: string, name: string | undefined, googleSub: string, now: number): Promise<{ sessionId: string }> {
+  const customerId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO customers (id, display_name, created_at, subscription_status) VALUES (?, ?, ?, 'inactive')`).bind(customerId, name?.trim() || "GlucoAlarm member", now).run();
+  try {
+    await env.DB.prepare(`INSERT INTO admins (id, email, password_hash, is_super_admin, customer_id, created_at, auth_provider, google_sub) VALUES (?, ?, ?, 0, ?, ?, 'google', ?)`).bind(adminId, email, await hashPassword(randomUnusablePassword()), customerId, now, googleSub).run();
+  } catch (error) {
+    await env.DB.prepare(`DELETE FROM customers WHERE id = ?`).bind(customerId).run();
+    throw error;
+  }
+  return createSession(env, adminId, now);
+}
+
+export async function exchangeMobileAuthCode(env: Env, request: Request, now: number): Promise<Response> {
+  const body = await request.json<{ code?: string }>();
+  if (!body.code) return new Response(JSON.stringify({ error: "code is required" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  const grant = await env.DB.prepare(`SELECT session_id, expires_at FROM mobile_auth_grants WHERE code = ?`).bind(body.code).first<{ session_id: string; expires_at: number }>();
+  if (!grant || grant.expires_at < now) return new Response(JSON.stringify({ error: "auth_code_expired" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  await env.DB.prepare(`DELETE FROM mobile_auth_grants WHERE code = ?`).bind(body.code).run();
+  return new Response(JSON.stringify({ sessionId: grant.session_id }), { headers: { "Content-Type": "application/json" } });
 }
 
 /**
@@ -53,7 +96,7 @@ export async function handleGoogleAuthCallback(request: Request, env: Env, now: 
     info = await exchangeGoogleCode(env, code);
   } catch (err) {
     console.error("handleGoogleAuthCallback: token exchange failed:", err);
-    return redirect(`${env.PUBLIC_WEB_URL}/login?error=google_auth_failed`);
+    return parsedState.native ? nativeError("google_auth_failed") : redirect(`${env.PUBLIC_WEB_URL}/login?error=google_auth_failed`);
   }
 
   const email = info.email.toLowerCase().trim();
@@ -64,10 +107,21 @@ export async function handleGoogleAuthCallback(request: Request, env: Env, now: 
 
   if (existing) {
     if (existing.auth_provider !== "google") {
-      return redirect(`${env.PUBLIC_WEB_URL}/login?error=google_email_registered`);
+      return parsedState.native ? nativeError("google_email_registered") : redirect(`${env.PUBLIC_WEB_URL}/login?error=google_email_registered`);
     }
     const { sessionId, expiresAt } = await createSession(env, existing.id, now);
+    if (parsedState.native) return nativeRedirect(env, sessionId, now);
     return redirect(`${env.PUBLIC_WEB_URL}/api/auth/google/finish?sid=${encodeURIComponent(sessionId)}&exp=${expiresAt}`);
+  }
+
+  if (parsedState.native) {
+    try {
+      const { sessionId } = await provisionNativeGoogleAccount(env, email, info.name, info.sub, now);
+      return nativeRedirect(env, sessionId, now);
+    } catch (err) {
+      console.error("native Google account provisioning failed:", err);
+      return nativeError("account_creation_failed");
+    }
   }
 
   // New account -- verify identity now, but the account itself is only

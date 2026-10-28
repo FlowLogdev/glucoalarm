@@ -1,5 +1,5 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
-import { DexcomShareClient, DexcomSessionError } from "./lib/dexcom-client-share";
+import { DexcomShareClient, DexcomSessionError, DexcomRateLimitError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
 import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
@@ -8,6 +8,7 @@ import { normalizeCallLanguage } from "./lib/voice-i18n";
 import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
 import { updateMobileAlertEpisode } from "./mobile-alerts";
+import { logError, runOpsChecks } from "./ops";
 import type { Env } from "./types";
 
 export interface PersonRow extends Person {
@@ -26,6 +27,10 @@ export interface PersonRow extends Person {
 
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
 const SESSION_TTL_SECONDS = 23 * 60 * 60;
+
+// After a Dexcom 429, stop logging in for a while -- retrying every 5-min
+// cron tick kept the per-account limit from ever clearing (2026-10-28).
+const DEXCOM_RATE_LIMIT_BACKOFF_SECONDS = 30 * 60;
 
 // Calls repeat every 5 min while low and unacknowledged (a person pressing
 // 1 on the call stops further repeats until the tier returns to safe).
@@ -79,14 +84,31 @@ async function fetchDexcomReadings(
   const client = new DexcomShareClient(env.DEXCOM_BASE_URL, env.DEXCOM_APPLICATION_ID);
   const minutes = lastRecordedAt ? Math.ceil((now - lastRecordedAt) / 60) + 2 : 1440;
 
-  let sessionId = await getSession(person, env, client, now);
+  // A null session with a future expiry is a rate-limit backoff marker
+  // (set below) -- skip Dexcom entirely until it passes.
+  if (!person.dexcom_session_id && person.dexcom_session_expires_at && now < person.dexcom_session_expires_at) {
+    return [];
+  }
+
   try {
-    return await client.getLatestReadings(sessionId, minutes);
+    let sessionId = await getSession(person, env, client, now);
+    try {
+      return await client.getLatestReadings(sessionId, minutes);
+    } catch (err) {
+      if (!(err instanceof DexcomSessionError)) throw err;
+      // Cached session was rejected — re-authenticate once and retry.
+      sessionId = await authenticate(person, env, client, now);
+      return await client.getLatestReadings(sessionId, minutes);
+    }
   } catch (err) {
-    if (!(err instanceof DexcomSessionError)) throw err;
-    // Cached session was rejected — re-authenticate once and retry.
-    sessionId = await authenticate(person, env, client, now);
-    return await client.getLatestReadings(sessionId, minutes);
+    if (!(err instanceof DexcomRateLimitError)) throw err;
+    console.error(`Dexcom rate-limited ${person.id}, backing off ${DEXCOM_RATE_LIMIT_BACKOFF_SECONDS}s:`, err);
+    await logError(env, "dexcom", person.id, err);
+    await env.DB
+      .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = ? WHERE id = ?`)
+      .bind(now + DEXCOM_RATE_LIMIT_BACKOFF_SECONDS, person.id)
+      .run();
+    return [];
   }
 }
 
@@ -120,7 +142,17 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     .bind(person.id)
     .first<{ value_mgdl: number; trend: string; recorded_at: number; received_at: number }>();
 
-  const newReadings = await fetchNewReadings(person, env, lastReading?.recorded_at ?? null, now);
+  // A Dexcom failure must not abort the poll -- treating it as "no new
+  // readings" lets the stale check below fire signal_lost, so caregivers
+  // hear that monitoring is down instead of getting silence.
+  let newReadings: Reading[];
+  try {
+    newReadings = await fetchNewReadings(person, env, lastReading?.recorded_at ?? null, now);
+  } catch (err) {
+    console.error(`fetchNewReadings failed for ${person.id}:`, err);
+    await logError(env, "dexcom", person.id, err);
+    newReadings = [];
+  }
 
   for (const r of newReadings) {
     await env.DB
@@ -223,6 +255,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
               await sendWhatsApp(sub.phone_number, fastDropVariables, env);
             } catch (err) {
               console.error(`sendWhatsApp (fast_drop_warning) failed for ${person.id} -> ${sub.phone_number}:`, err);
+              await logError(env, "whatsapp", person.id, err);
             }
           }
           await env.DB
@@ -232,9 +265,14 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
         }
       }
 
+      // Cron runs aren't exactly 5 min apart (start time jitters by a minute
+      // or more), so a strict ">= interval" check misses every other tick at
+      // a 5-min setting and the ticker lands every 10 min. Allow 90s of slack.
+      const TICKER_JITTER_GRACE_SECONDS = 90;
       const tickerIntervalSeconds = person.ticker_interval_minutes * 60;
       const dueForTicker =
-        !person.last_glucose_ticker_at || now - person.last_glucose_ticker_at >= tickerIntervalSeconds;
+        !person.last_glucose_ticker_at ||
+        now - person.last_glucose_ticker_at >= tickerIntervalSeconds - TICKER_JITTER_GRACE_SECONDS;
       if (dueForTicker) {
         const variables = tickerVariables(person.name, value, trend, time);
         let sentAnyone = false;
@@ -245,6 +283,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
             sentAnyone = true;
           } catch (err) {
             console.error(`sendWhatsApp (ticker) failed for ${person.id} -> ${sub.phone_number}:`, err);
+            await logError(env, "whatsapp", person.id, err);
           }
         }
         // Only advance the cooldown on at least one real success -- a total
@@ -280,6 +319,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
       // Don't let one bad number block the rest, or skip alerts_log below
       // and cause a resend storm next cron run.
       console.error(`sendWhatsApp failed for ${person.id} -> ${sub.phone_number}:`, err);
+      await logError(env, "whatsapp", person.id, err);
     }
   }
 
@@ -304,6 +344,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
           await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env, language);
         } catch (err) {
           console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
+          await logError(env, "voice", person.id, err);
         }
       }
       if (calledAnyone) {
@@ -325,7 +366,7 @@ export async function pollAll(env: Env): Promise<void> {
   // deleting the customer's data (they keep it if they resubscribe).
   const people = await env.DB
     .prepare(
-      `SELECT people.* FROM people JOIN customers ON customers.id = people.customer_id WHERE customers.subscription_status = 'active'`
+      `SELECT people.* FROM people JOIN customers ON customers.id = people.customer_id WHERE customers.subscription_status = 'active' AND customers.is_app_review_demo = 0`
     )
     .all<PersonRow>();
   for (const person of people.results) {
@@ -335,6 +376,13 @@ export async function pollAll(env: Env): Promise<void> {
       // One person's Dexcom/DB failure (bad session, network blip) shouldn't
       // stop the other person from being polled this cycle.
       console.error(`pollPerson failed for ${person.id}:`, err);
+      await logError(env, "poll", person.id, err);
     }
+  }
+
+  try {
+    await runOpsChecks(env, now);
+  } catch (err) {
+    console.error("runOpsChecks failed:", err);
   }
 }

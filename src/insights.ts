@@ -121,6 +121,40 @@ function buildUserMessage(stats: PatternStats): string {
 const FALLBACK_SUMMARY =
   "This summary couldn't be generated safely and was replaced with this message. Try regenerating, or review the Reports page numbers directly.";
 
+function formatHours(hours: HourBucket[]): string | null {
+  if (hours.length === 0) return null;
+  return hours
+    .map(({ hour, count }) => {
+      const suffix = hour >= 12 ? "PM" : "AM";
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:00 ${suffix} (${count})`;
+    })
+    .join(", ");
+}
+
+/**
+ * A transparent, data-only fallback for when the optional AI provider is
+ * unavailable. It is intentionally deterministic and never recommends care.
+ */
+function buildDeterministicSummary(stats: PatternStats): string {
+  if (stats.totalReadings === 0) {
+    return "Automated trend summary: there are no readings in the selected period yet. Review the dashboard again after more readings are available.";
+  }
+
+  const lowHours = formatHours(stats.lowHours);
+  const highHours = formatHours(stats.highHours);
+  const sentences = [
+    `Automated trend summary: ${stats.totalReadings} readings were recorded in the selected period; ${stats.safeCount} were in range, ${stats.lowCount} were low, and ${stats.highCount} were high.`,
+  ];
+
+  if (lowHours) sentences.push(`Low readings were most often recorded around ${lowHours}.`);
+  if (highHours) sentences.push(`High readings were most often recorded around ${highHours}.`);
+  if (!lowHours && !highHours) sentences.push("All recorded readings were in range during this period.");
+  sentences.push("This is a data summary only; discuss any concerns with the care team.");
+
+  return sentences.join(" ");
+}
+
 async function callAnthropic(env: Env, stats: PatternStats): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -128,6 +162,9 @@ async function callAnthropic(env: Env, stats: PatternStats): Promise<string> {
       "Content-Type": "application/json",
       "x-api-key": env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
+      ...(env.ANTHROPIC_WORKSPACE_ID
+        ? { "anthropic-workspace-id": env.ANTHROPIC_WORKSPACE_ID }
+        : {}),
     },
     body: JSON.stringify({
       model: env.ANTHROPIC_MODEL,
@@ -174,7 +211,13 @@ export async function generateInsight(
   now: number
 ): Promise<Insight> {
   const stats = await computeStats(env, person, period, now);
-  const summary = await callAnthropic(env, stats);
+  let summary: string;
+  try {
+    summary = await callAnthropic(env, stats);
+  } catch (error) {
+    console.error("Optional Anthropic insight generation failed; using deterministic summary:", error);
+    summary = buildDeterministicSummary(stats);
+  }
 
   await env.DB
     .prepare(
