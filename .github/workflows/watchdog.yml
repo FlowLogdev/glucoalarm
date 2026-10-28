@@ -1,0 +1,118 @@
+# External watchdog for GlucoAlarm. Runs outside Cloudflare and Vercel, so
+# it catches what the Worker's own alerts (src/ops.ts runOpsChecks) can't:
+# the cron not running at all, the Worker being down, or the website down.
+#
+# 1. Calls the Worker's /api/ops/watchdog. If the cron is stale, the Worker
+#    pages the operator itself and runs a poll (self-heal).
+# 2. If the Worker is unreachable, errors, or is unhealthy without having
+#    paged -- or glucoalarm.com is down -- this job pages the operator
+#    directly through Twilio (WhatsApp template, then a voice call).
+# Pages at most once per hour (actions/cache marker) while a problem lasts.
+#
+# Required repo secrets: WATCHDOG_KEY (same value as the Worker secret),
+# TWILIO_SID, TWILIO_AUTH, TWILIO_WHATSAPP_FROM, TWILIO_VOICE_FROM.
+name: watchdog
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_page:
+        description: "Send a test page even if everything is healthy"
+        type: boolean
+        default: false
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+env:
+  WORKER_URL: https://watchgluco-worker.sales-ff4.workers.dev
+  SITE_URL: https://www.glucoalarm.com/
+  OPS_ALERT_PHONE: "+13059882215"
+  WHATSAPP_TEMPLATE_SID: HXf9e3a1a7c89c99e5f536a4018ed47ba8
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Worker and website
+        id: check
+        env:
+          WATCHDOG_KEY: ${{ secrets.WATCHDOG_KEY }}
+        run: |
+          problem=""
+          body=$(curl -s -m 60 -w '\n%{http_code}' -H "X-Watchdog-Key: $WATCHDOG_KEY" "$WORKER_URL/api/ops/watchdog" || true)
+          code=$(echo "$body" | tail -n1)
+          json=$(echo "$body" | sed '$d')
+          echo "worker: HTTP $code $json"
+          if [ "$code" != "200" ]; then
+            problem="Worker unreachable or erroring (HTTP ${code:-none})"
+          elif [ "$(echo "$json" | jq -r '.healthy')" != "true" ] && [ "$(echo "$json" | jq -r '.worker_paged')" != "true" ]; then
+            problem="Poller stale ($(echo "$json" | jq -r '.cron_age_seconds')s since last run) and Worker could not page"
+          fi
+
+          site=$(curl -s -o /dev/null -m 30 -w '%{http_code}' "$SITE_URL" || true)
+          echo "site: HTTP $site"
+          if [ "$site" != "200" ]; then
+            problem="${problem:+$problem; }glucoalarm.com down (HTTP ${site:-none})"
+          fi
+
+          if [ "${{ inputs.test_page }}" = "true" ] && [ -z "$problem" ]; then
+            problem="Test page from the GitHub watchdog (all healthy)"
+          fi
+          echo "problem=$problem" >> "$GITHUB_OUTPUT"
+          echo "hour=$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
+      - name: Already paged this hour?
+        if: steps.check.outputs.problem != ''
+        id: throttle
+        uses: actions/cache/restore@v4
+        with:
+          path: .watchdog-paged
+          key: watchdog-paged-${{ steps.check.outputs.hour }}
+          lookup-only: true
+
+      - name: Page operator
+        if: steps.check.outputs.problem != '' && (steps.throttle.outputs.cache-hit != 'true' || inputs.test_page)
+        env:
+          PROBLEM: ${{ steps.check.outputs.problem }}
+          TWILIO_SID: ${{ secrets.TWILIO_SID }}
+          TWILIO_AUTH: ${{ secrets.TWILIO_AUTH }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_VOICE_FROM: ${{ secrets.TWILIO_VOICE_FROM }}
+        run: |
+          headline="🛠️ WATCHDOG: ${PROBLEM}"
+          vars=$(jq -nc --arg h "${headline:0:200}" '{"1":$h,"2":"GlucoAlarm (all customers)","3":"N/A","4":"N/A","5":"Details: logs.glucoalarm.com"}')
+          wa=$(curl -s -o /dev/null -w '%{http_code}' -u "$TWILIO_SID:$TWILIO_AUTH" \
+            "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/Messages.json" \
+            --data-urlencode "To=whatsapp:$OPS_ALERT_PHONE" \
+            --data-urlencode "From=whatsapp:$TWILIO_WHATSAPP_FROM" \
+            --data-urlencode "ContentSid=$WHATSAPP_TEMPLATE_SID" \
+            --data-urlencode "ContentVariables=$vars")
+          echo "whatsapp page: HTTP $wa"
+          # Voice call too: it works even if WhatsApp/Twilio messaging is the broken part.
+          say=$(echo "GlucoAlarm watchdog alert. ${PROBLEM}. Check logs dot glucoalarm dot com." | sed 's/[<>&]//g')
+          call=$(curl -s -o /dev/null -w '%{http_code}' -u "$TWILIO_SID:$TWILIO_AUTH" \
+            "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/Calls.json" \
+            --data-urlencode "To=$OPS_ALERT_PHONE" \
+            --data-urlencode "From=$TWILIO_VOICE_FROM" \
+            --data-urlencode "Twiml=<Response><Say>$say</Say><Pause length=\"1\"/><Say>$say</Say></Response>")
+          echo "voice page: HTTP $call"
+          mkdir -p .watchdog-paged && date -u > .watchdog-paged/at
+          if [ "$wa" -ge 300 ] && [ "$call" -ge 300 ]; then echo "::error::Both pages failed"; exit 1; fi
+
+      - name: Remember page
+        if: steps.check.outputs.problem != '' && steps.throttle.outputs.cache-hit != 'true' && !inputs.test_page
+        uses: actions/cache/save@v4
+        with:
+          path: .watchdog-paged
+          key: watchdog-paged-${{ steps.check.outputs.hour }}
+
+      - name: Fail the run when unhealthy
+        if: steps.check.outputs.problem != '' && !inputs.test_page
+        run: |
+          echo "::error::${{ steps.check.outputs.problem }}"
+          exit 1

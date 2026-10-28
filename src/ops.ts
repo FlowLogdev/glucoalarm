@@ -13,7 +13,7 @@ const OPS_DOWN_REMINDER_SECONDS = 60 * 60;
 // An error this recent marks a person "degraded" even if data isn't stale yet.
 const RECENT_ERROR_SECONDS = 15 * 60;
 
-export type ErrorSource = "dexcom" | "whatsapp" | "voice" | "poll";
+export type ErrorSource = "dexcom" | "whatsapp" | "voice" | "poll" | "api" | "webhook";
 
 /** Never throws -- logging a failure must not cause another one. */
 export async function logError(env: Env, source: ErrorSource, personId: string | null, err: unknown): Promise<void> {
@@ -289,4 +289,159 @@ export async function getUserCounts(env: Env, now: number) {
     customers_by_status: byStatus,
     ...totals,
   };
+}
+
+/** Security/business trail (logins, signups, billing webhooks, admin actions). Never throws. */
+export async function logAudit(
+  env: Env,
+  e: { action: string; adminId?: string | null; customerId?: string | null; personId?: string | null; detail?: string | null; ip?: string | null }
+): Promise<void> {
+  try {
+    await env.DB
+      .prepare(`INSERT INTO audit_log (admin_id, customer_id, action, target_person_id, created_at, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(e.adminId ?? null, e.customerId ?? null, e.action, e.personId ?? null, Math.floor(Date.now() / 1000), e.detail?.slice(0, 500) ?? null, e.ip ?? null)
+      .run();
+  } catch (err) {
+    console.error("logAudit failed:", err);
+  }
+}
+
+/** Best-effort client IP: the web proxy forwards the browser's in X-Client-IP. Logging only -- never trust it for auth. */
+export function clientIp(request: Request): string | null {
+  return request.headers.get("X-Client-IP")?.split(",")[0].trim() || request.headers.get("CF-Connecting-IP");
+}
+
+export async function recordCronRun(env: Env, startedAt: number, durationMs: number, peoplePolled: number, errors: number): Promise<void> {
+  try {
+    await env.DB
+      .prepare(`INSERT INTO cron_runs (started_at, duration_ms, people_polled, errors) VALUES (?, ?, ?, ?)`)
+      .bind(startedAt, durationMs, peoplePolled, errors)
+      .run();
+  } catch (err) {
+    console.error("recordCronRun failed:", err);
+  }
+}
+
+export async function pruneOpsLogs(env: Env, now: number): Promise<void> {
+  await env.DB.prepare(`DELETE FROM message_log WHERE created_at < ?`).bind(now - ERROR_LOG_RETENTION_SECONDS).run();
+  await env.DB.prepare(`DELETE FROM cron_runs WHERE started_at < ?`).bind(now - ERROR_LOG_RETENTION_SECONDS).run();
+  await env.DB.prepare(`DELETE FROM audit_log WHERE created_at < ?`).bind(now - 365 * 24 * 60 * 60).run();
+}
+
+// The */5 cron should never go this long without a run.
+const CRON_STALE_SECONDS = 15 * 60;
+const WATCHDOG_PAGE_COOLDOWN_SECONDS = 30 * 60;
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * GET /api/ops/watchdog, called every 5 min by the GitHub Actions watchdog
+ * (.github/workflows/watchdog.yml) -- outside Cloudflare's cron, so it
+ * catches the one failure runOpsChecks can't: the cron itself not running.
+ * If the cron is stale this pages the operator and runs a poll itself.
+ * The workflow pages on its own (direct Twilio) when this endpoint is
+ * unreachable or reports unhealthy without having paged.
+ */
+export async function handleWatchdog(request: Request, env: Env, runPoll: () => Promise<void>): Promise<Response> {
+  const key = request.headers.get("X-Watchdog-Key") ?? "";
+  if (!env.WATCHDOG_KEY || !timingSafeEqual(key, env.WATCHDOG_KEY)) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const lastCronRun = await getLastCronRun(env);
+  const cronAge = lastCronRun ? now - lastCronRun : null;
+  const cronHealthy = cronAge != null && cronAge < CRON_STALE_SECONDS;
+
+  let paged = false;
+  let selfHealed = false;
+  if (!cronHealthy) {
+    await logError(env, "poll", null, `Watchdog: cron has not run for ${cronAge == null ? "ever" : `${Math.round(cronAge / 60)} min`}`);
+    const lastPage = Number((await getOpsState(env, "watchdog:paged_at")) ?? 0);
+    if (env.OPS_ALERT_PHONE && now - lastPage >= WATCHDOG_PAGE_COOLDOWN_SECONDS) {
+      try {
+        await sendWhatsApp(
+          env.OPS_ALERT_PHONE,
+          {
+            "1": `🛠️ OPS: POLLER STOPPED - no cron run for ${cronAge == null ? "ever" : `${Math.round(cronAge / 60)} min`}`,
+            "2": "GlucoAlarm (all customers)",
+            "3": "N/A",
+            "4": "N/A",
+            "5": "Details: logs.glucoalarm.com",
+          },
+          env
+        );
+        paged = true;
+        await setOpsState(env, "watchdog:paged_at", String(now), now);
+      } catch (err) {
+        console.error("handleWatchdog: page failed:", err);
+      }
+    } else {
+      paged = true; // already paged within the cooldown
+    }
+    // Keep customers covered while the cron is broken.
+    try {
+      await runPoll();
+      selfHealed = true;
+    } catch (err) {
+      await logError(env, "poll", null, err);
+    }
+  }
+
+  const health = await scanHealth(env, now);
+  const down = health.filter((h) => h.status === "down" || h.status === "no_data");
+  return Response.json({
+    healthy: cronHealthy,
+    last_cron_run: lastCronRun,
+    cron_age_seconds: cronAge,
+    worker_paged: paged,
+    self_healed: selfHealed,
+    people_down: down.map((h) => h.person_id),
+  });
+}
+
+export async function getMessageLog(env: Env, since: number, to: string | null, limit: number) {
+  const rows = to
+    ? await env.DB
+        .prepare(`SELECT * FROM message_log WHERE created_at >= ? AND to_number = ? ORDER BY created_at DESC LIMIT ?`)
+        .bind(since, to, limit)
+        .all()
+    : await env.DB.prepare(`SELECT * FROM message_log WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?`).bind(since, limit).all();
+  return rows.results;
+}
+
+export async function getCronRuns(env: Env, since: number, limit: number) {
+  return (await env.DB.prepare(`SELECT * FROM cron_runs WHERE started_at >= ? ORDER BY started_at DESC LIMIT ?`).bind(since, limit).all()).results;
+}
+
+export async function getAuditLog(env: Env, since: number, limit: number) {
+  return (
+    await env.DB
+      .prepare(
+        `SELECT audit_log.*, admins.email AS admin_email FROM audit_log LEFT JOIN admins ON admins.id = audit_log.admin_id
+         WHERE audit_log.created_at >= ? ORDER BY audit_log.created_at DESC LIMIT ?`
+      )
+      .bind(since, limit)
+      .all()
+  ).results;
+}
+
+/** Support view: one row per customer with its logins, people, phones, and last activity. */
+export async function getCustomers(env: Env) {
+  return (
+    await env.DB
+      .prepare(
+        `SELECT c.id, c.display_name, c.created_at, c.subscription_status, c.stripe_subscription_status, c.revenuecat_subscription_status, c.is_app_review_demo,
+                (SELECT GROUP_CONCAT(email, ', ') FROM admins a WHERE a.customer_id = c.id) AS emails,
+                (SELECT COUNT(*) FROM people p WHERE p.customer_id = c.id) AS people,
+                (SELECT COUNT(*) FROM phone_subscribers s JOIN people p ON p.id = s.person_id WHERE p.customer_id = c.id) AS phones,
+                (SELECT MAX(created_at) FROM audit_log l WHERE l.customer_id = c.id AND l.action = 'login') AS last_login
+         FROM customers c ORDER BY c.created_at DESC`
+      )
+      .all()
+  ).results;
 }

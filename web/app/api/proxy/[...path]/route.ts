@@ -15,6 +15,7 @@ async function forward(request: NextRequest, path: string[]): Promise<NextRespon
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${sessionId}`,
+      "X-Client-IP": request.headers.get("x-forwarded-for") ?? "",
     },
   };
   if (request.method !== "GET" && request.method !== "DELETE") {

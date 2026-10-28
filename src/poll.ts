@@ -8,7 +8,7 @@ import { normalizeCallLanguage } from "./lib/voice-i18n";
 import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
 import { updateMobileAlertEpisode } from "./mobile-alerts";
-import { logError, runOpsChecks } from "./ops";
+import { logError, recordCronRun, runOpsChecks } from "./ops";
 import type { Env } from "./types";
 
 export interface PersonRow extends Person {
@@ -363,6 +363,8 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
 export async function pollAll(env: Env): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
+  const startedMs = Date.now();
+  let errors = 0;
   // Only poll/message/call for customers whose subscription is active --
   // a canceled or past-due subscription stops costing Twilio money without
   // deleting the customer's data (they keep it if they resubscribe).
@@ -379,6 +381,7 @@ export async function pollAll(env: Env): Promise<void> {
       // stop the other person from being polled this cycle.
       console.error(`pollPerson failed for ${person.id}:`, err);
       await logError(env, "poll", person.id, err);
+      errors++;
     }
   }
 
@@ -387,4 +390,5 @@ export async function pollAll(env: Env): Promise<void> {
   } catch (err) {
     console.error("runOpsChecks failed:", err);
   }
+  await recordCronRun(env, now, Date.now() - startedMs, people.results.length, errors);
 }

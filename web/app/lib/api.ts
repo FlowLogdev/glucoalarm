@@ -591,3 +591,68 @@ export function getOpsErrors(hours: number, personId?: string, source?: string):
 export function retryOpsPerson(personId: string): Promise<{ status: string; detail: string }> {
   return apiFetch<{ status: string; detail: string }>("/admin/retry", { method: "POST", body: JSON.stringify({ person_id: personId }) });
 }
+
+export interface OpsMessage {
+  id: number;
+  created_at: number;
+  updated_at: number;
+  channel: "whatsapp" | "sms" | "voice";
+  to_number: string;
+  kind: string | null;
+  twilio_sid: string | null;
+  status: string;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export interface OpsCronRun {
+  id: number;
+  started_at: number;
+  duration_ms: number;
+  people_polled: number;
+  errors: number;
+}
+
+export interface OpsAuditEntry {
+  id: number;
+  created_at: number;
+  action: string;
+  admin_id: string | null;
+  admin_email: string | null;
+  customer_id: string | null;
+  target_person_id: string | null;
+  detail: string | null;
+  ip: string | null;
+}
+
+export interface OpsCustomer {
+  id: string;
+  display_name: string;
+  created_at: number;
+  subscription_status: string;
+  stripe_subscription_status: string | null;
+  revenuecat_subscription_status: string | null;
+  is_app_review_demo: number;
+  emails: string | null;
+  people: number;
+  phones: number;
+  last_login: number | null;
+}
+
+export function getOpsMessages(hours: number, to?: string): Promise<OpsMessage[]> {
+  const params = new URLSearchParams({ hours: String(hours), limit: "500" });
+  if (to) params.set("to", to);
+  return apiFetch<OpsMessage[]>(`/admin/messages?${params}`);
+}
+
+export function getOpsCronRuns(hours: number): Promise<OpsCronRun[]> {
+  return apiFetch<OpsCronRun[]>(`/admin/cron-runs?hours=${hours}&limit=500`);
+}
+
+export function getOpsAudit(hours: number): Promise<OpsAuditEntry[]> {
+  return apiFetch<OpsAuditEntry[]>(`/admin/audit?hours=${hours}&limit=500`);
+}
+
+export function getOpsCustomers(): Promise<OpsCustomer[]> {
+  return apiFetch<OpsCustomer[]>("/admin/customers");
+}

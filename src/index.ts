@@ -4,7 +4,8 @@ import { handleCallAck } from "./calls-webhook";
 import { handleStripeWebhook } from "./stripe-webhook";
 import { handleRevenueCatWebhook } from "./revenuecat-webhook";
 import { checkAndGenerateReports } from "./reports-generator";
-import { pruneErrorLog } from "./ops";
+import { clientIp, handleWatchdog, logAudit, logError, pruneErrorLog, pruneOpsLogs } from "./ops";
+import { handleTwilioStatus } from "./twilio-status";
 import { handleGoogleAuthStart, handleGoogleAuthCallback } from "./google-auth";
 import { handleWhatsAppInbound } from "./query-bot";
 import { handleVoiceInbound } from "./voice-bot";
@@ -18,6 +19,7 @@ export default {
     if (event.cron === "0 4 * * *") {
       ctx.waitUntil(checkAndGenerateReports(env, Math.floor(Date.now() / 1000)));
       ctx.waitUntil(pruneErrorLog(env, Math.floor(Date.now() / 1000)));
+      ctx.waitUntil(pruneOpsLogs(env, Math.floor(Date.now() / 1000)));
       return;
     }
     ctx.waitUntil(pollAll(env));
@@ -36,11 +38,27 @@ export default {
     // Stripe webhook -- same reasoning: public, verified by Stripe's own
     // request signature instead of our bearer token.
     if (request.method === "POST" && url0.pathname === "/api/stripe/webhook") {
-      return handleStripeWebhook(request, env, Math.floor(Date.now() / 1000));
+      const res = await handleStripeWebhook(request.clone(), env, Math.floor(Date.now() / 1000));
+      await auditWebhook(env, "stripe", request, res);
+      return res;
     }
 
     if (request.method === "POST" && url0.pathname === "/api/revenuecat/webhook") {
-      return handleRevenueCatWebhook(request, env);
+      const res = await handleRevenueCatWebhook(request.clone(), env);
+      await auditWebhook(env, "revenuecat", request, res);
+      return res;
+    }
+
+    // Twilio delivery status for every outbound message/call -- same
+    // reasoning: public, verified by Twilio's own request signature.
+    if (request.method === "POST" && url0.pathname === "/api/twilio/status") {
+      return handleTwilioStatus(request, env);
+    }
+
+    // External watchdog (GitHub Actions) -- authenticated by WATCHDOG_KEY,
+    // not a session, since it runs outside any login.
+    if (request.method === "GET" && url0.pathname === "/api/ops/watchdog") {
+      return handleWatchdog(request, env, () => pollAll(env));
     }
 
     // Google OAuth -- public by necessity (Google redirects the browser
@@ -65,8 +83,20 @@ export default {
       return handleVoiceInbound(request, env, Math.floor(Date.now() / 1000));
     }
 
-    const apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
-    if (apiResponse) return apiResponse;
+    let apiResponse: Response | null;
+    try {
+      apiResponse = await handleApi(request, env, Math.floor(Date.now() / 1000));
+    } catch (err) {
+      console.error(`handleApi threw for ${request.method} ${url0.pathname}:`, err);
+      await logError(env, "api", null, `${request.method} ${url0.pathname}: ${err instanceof Error ? err.message : String(err)}`);
+      return Response.json({ error: "internal_error" }, { status: 500 });
+    }
+    if (apiResponse) {
+      if (apiResponse.status >= 500) {
+        await logError(env, "api", null, `${request.method} ${url0.pathname} returned ${apiResponse.status}: ${(await apiResponse.clone().text()).slice(0, 500)}`);
+      }
+      return apiResponse;
+    }
 
     // Manual trigger, e.g. for local testing: curl http://localhost:8787/__poll
     // Requires the same admin bearer token as /api/* so it can't be hit
@@ -82,3 +112,16 @@ export default {
     return new Response("watchgluco worker\n");
   },
 };
+
+/** Billing webhooks change subscription state -- keep a trail of each one. */
+async function auditWebhook(env: Env, provider: "stripe" | "revenuecat", request: Request, res: Response): Promise<void> {
+  let type = "unknown";
+  try {
+    const body = (await request.json()) as { type?: string; event?: { type?: string } };
+    type = body.type ?? body.event?.type ?? "unknown";
+  } catch {
+    // unparseable body -- the handler already rejected it
+  }
+  await logAudit(env, { action: `webhook:${provider}`, detail: `${type} -> HTTP ${res.status}`, ip: clientIp(request) });
+  if (res.status >= 400) await logError(env, "webhook", null, `${provider} webhook ${type} returned HTTP ${res.status}`);
+}

@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import type { AlertType } from "./alerts";
+import { recordMessage, statusCallbackUrl } from "./message-log";
 
 export class TwilioError extends Error {}
 
@@ -31,6 +32,7 @@ export async function sendWhatsApp(to: string, variables: Record<string, string>
           From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
           ContentSid: env.WHATSAPP_TEMPLATE_SID,
           ContentVariables: JSON.stringify(variables),
+          StatusCallback: statusCallbackUrl(env),
         }),
       }
     );
@@ -42,6 +44,7 @@ export async function sendWhatsApp(to: string, variables: Record<string, string>
 
     const data = await res.json<{ sid: string; status: string }>();
     console.log(`sendWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
+    await recordMessage(env, { channel: "whatsapp", to, kind: variables["1"] ?? null, sid: data.sid, status: data.status });
   } catch (err) {
     // Falls back to plain SMS on any send-time failure (Twilio rejection,
     // network error) -- this is the same class of failure that silently
@@ -49,6 +52,7 @@ export async function sendWhatsApp(to: string, variables: Record<string, string>
     // rejection). Doesn't catch "Twilio accepted it but the phone never
     // got it" -- that needs status-callback webhooks, a separate feature.
     console.error(`sendWhatsApp failed for ${to}, falling back to SMS:`, err);
+    await recordMessage(env, { channel: "whatsapp", to, kind: variables["1"] ?? null, sid: null, status: "send_failed", errorMessage: String(err) });
     const fallbackText = `${variables["1"] ?? ""} for ${variables["2"] ?? ""}: ${variables["3"] ?? "n/a"} mg/dL, trending ${variables["4"] ?? "n/a"}. ${variables["5"] ?? ""}`.trim();
     await sendSMS(to, fallbackText, env);
   }
@@ -70,16 +74,19 @@ export async function sendSMS(to: string, body: string, env: Env): Promise<void>
       To: to,
       From: env.TWILIO_VOICE_FROM,
       Body: body,
+      StatusCallback: statusCallbackUrl(env),
     }),
   });
 
   if (!res.ok) {
     const text = await res.text();
+    await recordMessage(env, { channel: "sms", to, kind: body.slice(0, 80), sid: null, status: "send_failed", errorMessage: text });
     throw new TwilioError(`Twilio SMS send failed (${res.status}): ${text}`);
   }
 
   const data = await res.json<{ sid: string; status: string }>();
   console.log(`sendSMS accepted: to=${to} sid=${data.sid} status=${data.status}`);
+  await recordMessage(env, { channel: "sms", to, kind: body.slice(0, 80), sid: data.sid, status: data.status });
 }
 
 /**
@@ -105,16 +112,19 @@ export async function sendFreeformWhatsApp(to: string, body: string, env: Env): 
       To: `whatsapp:${to}`,
       From: `whatsapp:${env.TWILIO_WHATSAPP_FROM}`,
       Body: body,
+      StatusCallback: statusCallbackUrl(env),
     }),
   });
 
   if (!res.ok) {
     const text = await res.text();
+    await recordMessage(env, { channel: "whatsapp", to, kind: "bot reply", sid: null, status: "send_failed", errorMessage: text });
     throw new TwilioError(`Twilio WhatsApp freeform send failed (${res.status}): ${text}`);
   }
 
   const data = await res.json<{ sid: string; status: string }>();
   console.log(`sendFreeformWhatsApp accepted: to=${to} sid=${data.sid} status=${data.status}`);
+  await recordMessage(env, { channel: "whatsapp", to, kind: "bot reply", sid: data.sid, status: data.status });
 }
 
 function labelFor(type: AlertType, staleMinutes: number | null): string {

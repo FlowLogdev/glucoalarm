@@ -16,7 +16,7 @@ import { generateReport, determineDuePeriods, MAX_CUSTOM_RANGE_DAYS, type Report
 import { isValidCallLanguage } from "./lib/voice-i18n";
 import { acknowledgeMobileAlert, getActiveMobileAlert, registerMobilePushDevice } from "./mobile-alerts";
 import { getInsulinLogs } from "./insulin-log";
-import { getErrorLog, getLastCronRun, getUserCounts, scanHealth } from "./ops";
+import { clientIp, getAuditLog, getCronRuns, getCustomers, getErrorLog, getLastCronRun, getMessageLog, getUserCounts, logAudit, scanHealth } from "./ops";
 import type { Env } from "./types";
 
 const TICKER_INTERVAL_OPTIONS = new Set([5, 8, 10, 15, 20, 30, 60]);
@@ -92,7 +92,14 @@ async function postLogin(env: Env, request: Request, now: number): Promise<Respo
     return jsonResponse({ error: "email and password are required" }, 400);
   }
   const result = await login(env, body.email, body.password, now);
-  if (!result) return jsonResponse({ error: "invalid_credentials" }, 401);
+  const ip = clientIp(request);
+  if (!result) {
+    // Failed logins matter for spotting password guessing against an account.
+    await logAudit(env, { action: "login_failed", detail: body.email.toLowerCase().trim(), ip });
+    return jsonResponse({ error: "invalid_credentials" }, 401);
+  }
+  const admin = await getSessionAdmin(env, result.sessionId, now);
+  await logAudit(env, { action: "login", adminId: admin?.id, customerId: admin?.customer_id, detail: admin?.email, ip });
   return jsonResponse(result);
 }
 
@@ -491,7 +498,9 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/mobile/signup") {
-    return postMobileSignup(env, request, now);
+    const signupRes = await postMobileSignup(env, request, now);
+    await logAudit(env, { action: signupRes.ok ? "signup_mobile" : "signup_mobile_failed", detail: `HTTP ${signupRes.status}`, ip: clientIp(request) });
+    return signupRes;
   }
 
   if (method === "POST" && path === "/api/auth/logout") {
@@ -503,11 +512,15 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
   }
 
   if (method === "POST" && path === "/api/signup/complete") {
-    return postSignupComplete(env, request, now);
+    const signupRes = await postSignupComplete(env, request, now);
+    await logAudit(env, { action: signupRes.ok ? "signup" : "signup_failed", detail: `HTTP ${signupRes.status}`, ip: clientIp(request) });
+    return signupRes;
   }
 
   if (method === "POST" && path === "/api/signup/complete-google") {
-    return postSignupCompleteGoogle(env, request, now);
+    const signupRes = await postSignupCompleteGoogle(env, request, now);
+    await logAudit(env, { action: signupRes.ok ? "signup_google" : "signup_google_failed", detail: `HTTP ${signupRes.status}`, ip: clientIp(request) });
+    return signupRes;
   }
 
   if (method === "POST" && path === "/api/support/public-tickets") {
@@ -637,7 +650,27 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
       if (!body.person_id) return jsonResponse({ error: "person_id is required" }, 400);
       const status = await restartService(env, body.person_id, now, true);
       if (!status) return jsonResponse({ error: "person_not_found" }, 404);
+      await logAudit(env, { action: "admin_retry_dexcom", adminId: a.id, customerId: a.customer_id, personId: body.person_id, detail: `${status.status}: ${status.detail}` });
       return jsonResponse(status);
+    }
+
+    const hours = Math.min(Math.max(Number(url.searchParams.get("hours")) || 24, 1), 24 * 365);
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 200, 1), 1000);
+
+    if (method === "GET" && path === "/api/admin/messages") {
+      return jsonResponse(await getMessageLog(env, now - hours * 3600, url.searchParams.get("to"), limit));
+    }
+
+    if (method === "GET" && path === "/api/admin/cron-runs") {
+      return jsonResponse(await getCronRuns(env, now - hours * 3600, limit));
+    }
+
+    if (method === "GET" && path === "/api/admin/audit") {
+      return jsonResponse(await getAuditLog(env, now - hours * 3600, limit));
+    }
+
+    if (method === "GET" && path === "/api/admin/customers") {
+      return jsonResponse(await getCustomers(env));
     }
 
     return jsonResponse({ error: "not_found" }, 404);

@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { normalizeCallLanguage, sayTag, type CallLanguage } from "./voice-i18n";
+import { recordMessage, statusCallbackUrl } from "./message-log";
 
 export class TwilioVoiceError extends Error {}
 
@@ -65,13 +66,17 @@ export async function makeVoiceCall(
       From: env.TWILIO_VOICE_FROM,
       Twiml: twiml,
       Timeout: String(CALL_RING_TIMEOUT_SECONDS),
+      StatusCallback: statusCallbackUrl(env),
     }),
   });
 
   if (!res.ok) {
     const text = await res.text();
+    await recordMessage(env, { channel: "voice", to, kind: "low glucose call", sid: null, status: "send_failed", errorMessage: text });
     throw new TwilioVoiceError(`Twilio call failed (${res.status}): ${text}`);
   }
+  const call = await res.json<{ sid: string; status: string }>();
+  await recordMessage(env, { channel: "voice", to, kind: "low glucose call", sid: call.sid, status: call.status });
 
   await new Promise((resolve) => setTimeout(resolve, CALL_ACTIVE_WINDOW_MS));
 }

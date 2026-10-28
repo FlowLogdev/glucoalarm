@@ -8,7 +8,8 @@ export async function POST(request: NextRequest) {
 
   const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Browser IP for the Worker's security log (audit_log) -- logging only.
+    headers: { "Content-Type": "application/json", "X-Client-IP": request.headers.get("x-forwarded-for") ?? "" },
     body,
   });
 

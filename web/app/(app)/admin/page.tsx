@@ -11,6 +11,17 @@ import {
   type OpsPersonStatus,
   type OpsScan,
 } from "../../lib/api";
+import { CronTab, CustomersTab, MessagesTab, SecurityTab } from "./log-tabs";
+
+const TABS = [
+  ["overview", "Overview"],
+  ["customers", "Customers"],
+  ["messages", "Messages"],
+  ["cron", "Poller runs"],
+  ["security", "Security"],
+  ["errors", "Errors"],
+] as const;
+type Tab = (typeof TABS)[number][0];
 
 const STATUS_COLORS: Record<OpsPersonStatus, string> = {
   ok: "var(--status-green)",
@@ -56,6 +67,7 @@ export default function AdminPage() {
   const [sourceFilter, setSourceFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
 
   useEffect(() => {
     getCurrentAdmin()
@@ -119,7 +131,24 @@ export default function AdminPage() {
       </div>
       {message && <p className="meta">{message}</p>}
 
-      {scan && (
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", borderBottom: "1px solid var(--border)", marginBottom: 16 }}>
+        {TABS.map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{ background: tab === key ? "var(--panel)" : "transparent", border: "none", borderBottom: tab === key ? "2px solid var(--status-green)" : "2px solid transparent", borderRadius: 0, color: tab === key ? "var(--text)" : "var(--text-dim)", padding: "8px 12px", cursor: "pointer" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "customers" && <CustomersTab />}
+      {tab === "messages" && <MessagesTab />}
+      {tab === "cron" && <CronTab />}
+      {tab === "security" && <SecurityTab />}
+
+      {scan && tab === "overview" && (
         <>
           <div className="card-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
             <div className="card">
@@ -211,8 +240,11 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+        </>
+      )}
 
-          <h2>Error log</h2>
+      {scan && tab === "errors" && (
+        <>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
               <option value={1}>Last hour</option>
