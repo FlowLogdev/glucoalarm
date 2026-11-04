@@ -4,6 +4,7 @@ import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { getA1CEstimates } from "./a1c";
 import { postSetupAssistant } from "./setup-assistant";
 import { getStatus, restartService } from "./status";
+import { canManageCustomers, customerProtectedReason, deleteCustomer, setCustomerStatus } from "./customer-admin";
 import { postDoctorInvite, getDoctors, deleteDoctor } from "./doctors";
 import { getReportCsv } from "./csv";
 import { generateInsight, getCachedInsight } from "./insights";
@@ -314,6 +315,32 @@ function validateSchedule(body: {
   return { active_start_minute: start, active_end_minute: end, active_days: days };
 }
 
+const onOff = (value: unknown): string => (value ? "on" : "off");
+
+/**
+ * Audit trail for alert contacts: a contact's calls were silently switched off
+ * around 2026-10-31 and nothing recorded who did it. Only the web proxy sets
+ * X-Client-IP, which tells the website apart from the mobile app (logging only).
+ */
+async function logContactChange(
+  env: Env,
+  request: Request,
+  admin: Admin,
+  action: string,
+  contact: { person_id: string; phone_number: string; label: string | null },
+  change: string
+): Promise<void> {
+  const via = request.headers.has("X-Client-IP") ? "web" : "mobile app or direct API";
+  await logAudit(env, {
+    action,
+    adminId: admin.id,
+    customerId: admin.customer_id,
+    personId: contact.person_id,
+    detail: `${contact.label ?? "Contact"} (...${contact.phone_number.slice(-4)}): ${change}; by ${admin.email} via ${via}`,
+    ip: clientIp(request),
+  });
+}
+
 async function postSubscriber(env: Env, request: Request, admin: Admin): Promise<Response> {
   const body = await request.json<{
     person_id?: string;
@@ -374,10 +401,18 @@ async function postSubscriber(env: Env, request: Request, admin: Admin): Promise
       schedule.active_days
     )
     .run();
+  await logContactChange(
+    env,
+    request,
+    admin,
+    "contact_added",
+    { person_id: body.person_id, phone_number: body.phone_number, label: body.label ?? null },
+    `added (calls ${onOff(body.call_on_low)})`
+  );
   return jsonResponse({ id: result.meta.last_row_id }, 201);
 }
 
-async function patchSubscriber(env: Env, id: string, request: Request): Promise<Response> {
+async function patchSubscriber(env: Env, id: string, request: Request, admin: Admin): Promise<Response> {
   if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
   const body = await request.json<{
     call_on_low?: boolean;
@@ -403,9 +438,12 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
   }
 
   const current = await env.DB
-    .prepare(`SELECT call_on_low, call_priority, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
+    .prepare(`SELECT person_id, phone_number, label, call_on_low, call_priority, call_language, whatsapp_enabled, active_start_minute, active_end_minute, active_days FROM phone_subscribers WHERE id = ?`)
     .bind(id)
     .first<{
+      person_id: string;
+      phone_number: string;
+      label: string | null;
       call_on_low: number;
       call_priority: number;
       call_language: string;
@@ -437,13 +475,33 @@ async function patchSubscriber(env: Env, id: string, request: Request): Promise<
     )
     .run();
   if (result.meta.changes === 0) return jsonResponse({ error: "not_found" }, 404);
+
+  const changes: string[] = [];
+  if (body.call_on_low != null && !!body.call_on_low !== !!current.call_on_low) changes.push(`calls ${onOff(current.call_on_low)} -> ${onOff(body.call_on_low)}`);
+  if (body.whatsapp_enabled != null && !!body.whatsapp_enabled !== !!current.whatsapp_enabled) changes.push(`whatsapp ${onOff(current.whatsapp_enabled)} -> ${onOff(body.whatsapp_enabled)}`);
+  if (body.call_language != null && body.call_language !== current.call_language) changes.push(`language ${current.call_language} -> ${body.call_language}`);
+  if (body.call_priority != null && body.call_priority !== current.call_priority) changes.push(`priority ${current.call_priority} -> ${body.call_priority}`);
+  if (
+    schedule.active_start_minute !== current.active_start_minute ||
+    schedule.active_end_minute !== current.active_end_minute ||
+    schedule.active_days !== current.active_days
+  ) {
+    changes.push(`schedule start=${schedule.active_start_minute} end=${schedule.active_end_minute} days=${schedule.active_days}`);
+  }
+  if (changes.length > 0) await logContactChange(env, request, admin, "contact_updated", current, changes.join(", "));
+
   return jsonResponse({ ok: true });
 }
 
-async function deleteSubscriber(env: Env, id: string): Promise<Response> {
+async function deleteSubscriber(env: Env, id: string, request: Request, admin: Admin): Promise<Response> {
   if (!/^\d+$/.test(id)) return jsonResponse({ error: "invalid id" }, 400);
+  const contact = await env.DB
+    .prepare(`SELECT person_id, phone_number, label, call_on_low FROM phone_subscribers WHERE id = ?`)
+    .bind(id)
+    .first<{ person_id: string; phone_number: string; label: string | null; call_on_low: number }>();
   const result = await env.DB.prepare(`DELETE FROM phone_subscribers WHERE id = ?`).bind(id).run();
-  if (result.meta.changes === 0) return jsonResponse({ error: "not_found" }, 404);
+  if (result.meta.changes === 0 || !contact) return jsonResponse({ error: "not_found" }, 404);
+  await logContactChange(env, request, admin, "contact_deleted", contact, `removed (calls were ${onOff(contact.call_on_low)})`);
   return jsonResponse({ ok: true });
 }
 
@@ -670,7 +728,22 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     }
 
     if (method === "GET" && path === "/api/admin/customers") {
-      return jsonResponse(await getCustomers(env));
+      const manager = canManageCustomers(env, a);
+      const customers = (await getCustomers(env)) as { id: string; is_app_review_demo: number }[];
+      return jsonResponse(
+        customers.map((c) => {
+          const protected_reason = customerProtectedReason(c, a);
+          return { ...c, protected_reason, can_manage: manager && !protected_reason };
+        })
+      );
+    }
+
+    const customerAction = /^\/api\/admin\/customers\/([^/]+)\/(status|delete)$/.exec(path);
+    if (method === "POST" && customerAction) {
+      const customerId = decodeURIComponent(customerAction[1]);
+      return customerAction[2] === "status"
+        ? setCustomerStatus(env, a, customerId, request)
+        : deleteCustomer(env, a, customerId, request);
     }
 
     return jsonResponse({ error: "not_found" }, 404);
@@ -899,7 +972,7 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     const writeGuard = requireWriteAccess(a);
     if (writeGuard) return writeGuard;
     if (!(await assertOwnsSubscriber(env, a, subscriberDeleteMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
-    return deleteSubscriber(env, subscriberDeleteMatch[1]);
+    return deleteSubscriber(env, subscriberDeleteMatch[1], request, a);
   }
 
   const subscriberPatchMatch = /^\/api\/subscribers\/(\w+)$/.exec(path);
@@ -907,7 +980,7 @@ async function route(request: Request, url: URL, env: Env, now: number, admin: A
     const writeGuard = requireWriteAccess(a);
     if (writeGuard) return writeGuard;
     if (!(await assertOwnsSubscriber(env, a, subscriberPatchMatch[1]))) return jsonResponse({ error: "not_found" }, 404);
-    return patchSubscriber(env, subscriberPatchMatch[1], request);
+    return patchSubscriber(env, subscriberPatchMatch[1], request, a);
   }
 
   if (method === "GET" && path === "/api/billing") {

@@ -436,7 +436,7 @@ export async function getCustomers(env: Env) {
   return (
     await env.DB
       .prepare(
-        `SELECT c.id, c.display_name, c.created_at, c.subscription_status, c.stripe_subscription_status, c.revenuecat_subscription_status, c.is_app_review_demo,
+        `SELECT c.id, c.display_name, c.created_at, c.subscription_status, c.admin_status_override, c.stripe_subscription_status, c.revenuecat_subscription_status, c.is_app_review_demo,
                 (SELECT GROUP_CONCAT(email, ', ') FROM admins a WHERE a.customer_id = c.id) AS emails,
                 (SELECT COUNT(*) FROM people p WHERE p.customer_id = c.id) AS people,
                 (SELECT COUNT(*) FROM phone_subscribers s JOIN people p ON p.id = s.person_id WHERE p.customer_id = c.id) AS phones,

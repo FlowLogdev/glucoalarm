@@ -630,9 +630,12 @@ export interface OpsCustomer {
   display_name: string;
   created_at: number;
   subscription_status: string;
+  admin_status_override: "active" | "inactive" | null;
   stripe_subscription_status: string | null;
   revenuecat_subscription_status: string | null;
   is_app_review_demo: number;
+  protected_reason: string | null;
+  can_manage: boolean;
   emails: string | null;
   people: number;
   phones: number;
@@ -655,4 +658,12 @@ export function getOpsAudit(hours: number): Promise<OpsAuditEntry[]> {
 
 export function getOpsCustomers(): Promise<OpsCustomer[]> {
   return apiFetch<OpsCustomer[]>("/admin/customers");
+}
+
+export function setOpsCustomerStatus(id: string, status: "active" | "inactive"): Promise<{ ok: boolean; billing_continues: boolean }> {
+  return apiFetch(`/admin/customers/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify({ status }) });
+}
+
+export function deleteOpsCustomer(id: string, confirmName: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/admin/customers/${encodeURIComponent(id)}/delete`, { method: "POST", body: JSON.stringify({ confirm_name: confirmName }) });
 }

@@ -38,6 +38,8 @@ PUBLIC_WEB_URL = "https://glucoalarm.com"
 # Operator phone paged (WhatsApp template) when a customer's monitoring
 # goes down / recovers -- see src/ops.ts runOpsChecks.
 OPS_ALERT_PHONE = "+13059882215"
+# The one login allowed to deactivate or delete customers in the admin console.
+CUSTOMER_ADMIN_EMAIL = "support@flowlog.dev"
 # Set after creating the flat monthly subscription Price in the Stripe
 # Dashboard (Product catalog). Not a secret -- Price IDs aren't sensitive.
 STRIPE_PRICE_ID = "price_1UELdJHnnXzltzilfl0yGwS0"

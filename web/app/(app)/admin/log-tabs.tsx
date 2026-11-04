@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import {
+  deleteOpsCustomer,
   getOpsAudit,
   getOpsCronRuns,
   getOpsCustomers,
   getOpsMessages,
+  setOpsCustomerStatus,
   type OpsAuditEntry,
   type OpsCronRun,
   type OpsCustomer,
@@ -66,9 +68,78 @@ function Table({ head, children }: { head: string[]; children: React.ReactNode }
   );
 }
 
+function CustomerActions({ customer, onChanged }: { customer: OpsCustomer; onChanged: (message: string) => void }) {
+  const [pending, setPending] = useState<"deactivate" | "delete" | null>(null);
+  const [typedName, setTypedName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (customer.protected_reason) return <span className="meta" style={{ fontSize: 11 }}>Protected: {customer.protected_reason}</span>;
+  if (!customer.can_manage) return <span className="meta">-</span>;
+
+  async function act(action: () => Promise<string>) {
+    setBusy(true);
+    setError(null);
+    try {
+      onChanged(await action());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed");
+      setBusy(false);
+    }
+  }
+
+  const setStatus = (status: "active" | "inactive") =>
+    act(async () => {
+      const result = await setOpsCustomerStatus(customer.id, status);
+      if (status === "active") return `${customer.display_name} is active.`;
+      return `${customer.display_name} is inactive.${result.billing_continues ? " Their subscription is still being billed: cancel it separately." : ""}`;
+    });
+
+  const isActive = customer.subscription_status === "active";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 170 }}>
+      {pending === null && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <button disabled={busy} onClick={() => (isActive ? setPending("deactivate") : setStatus("active"))}>{isActive ? "Deactivate" : "Activate"}</button>
+          <button disabled={busy} onClick={() => { setTypedName(""); setPending("delete"); }}>Delete</button>
+        </div>
+      )}
+      {pending === "deactivate" && (
+        <>
+          <span style={{ fontSize: 12 }}>Stop monitoring, alerts and calls? This doesn&apos;t cancel billing.</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button disabled={busy} onClick={() => setStatus("inactive")}>Yes, deactivate</button>
+            <button disabled={busy} onClick={() => setPending(null)}>Cancel</button>
+          </div>
+        </>
+      )}
+      {pending === "delete" && (
+        <>
+          <span style={{ fontSize: 12 }}>
+            This permanently deletes the account, readings, contacts and logins. Type <strong>{customer.display_name}</strong> to confirm.
+          </span>
+          <input value={typedName} onChange={(e) => setTypedName(e.target.value)} aria-label="Type the customer's name to confirm" />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              disabled={busy || typedName !== customer.display_name}
+              onClick={() => act(async () => { await deleteOpsCustomer(customer.id, typedName); return `${customer.display_name} was deleted.`; })}
+            >
+              Delete forever
+            </button>
+            <button disabled={busy} onClick={() => setPending(null)}>Cancel</button>
+          </div>
+        </>
+      )}
+      {error && <span className="meta" style={{ fontSize: 11 }}>{error}</span>}
+    </div>
+  );
+}
+
 export function CustomersTab() {
   const [query, setQuery] = useState("");
-  const { data, error } = useLoad(getOpsCustomers, []);
+  const [reload, setReload] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { data, error } = useLoad(getOpsCustomers, [reload]);
   const q = query.trim().toLowerCase();
   const rows = (data ?? []).filter(
     (c) => !q || c.display_name.toLowerCase().includes(q) || (c.emails ?? "").toLowerCase().includes(q) || c.id.toLowerCase().includes(q)
@@ -76,10 +147,11 @@ export function CustomersTab() {
   return (
     <>
       <input placeholder="Search name, email, or id" value={query} onChange={(e) => setQuery(e.target.value)} style={{ marginBottom: 12, width: "100%", maxWidth: 360 }} />
+      {notice && <p>{notice}</p>}
       {error && <p className="meta">{error}</p>}
       {!data && !error && <p className="meta">Loading...</p>}
       {data && (
-        <Table head={["Customer", "Login emails", "Status", "People / phones", "Signed up", "Last login"]}>
+        <Table head={["Customer", "Login emails", "Status", "People / phones", "Signed up", "Last login", "Actions"]}>
           {rows.map((c: OpsCustomer) => (
             <tr key={c.id} style={{ borderTop: "1px solid var(--border)" }}>
               <td style={cell}>
@@ -90,6 +162,7 @@ export function CustomersTab() {
               <td style={cell}>{c.emails ?? "-"}</td>
               <td style={cell}>
                 <strong>{c.subscription_status}</strong>
+                {c.admin_status_override ? <span className="meta" style={{ fontSize: 11 }}> (set manually)</span> : null}
                 <div className="meta" style={{ fontSize: 11 }}>
                   Stripe: {c.stripe_subscription_status ?? "-"} · App Store: {c.revenuecat_subscription_status ?? "-"}
                 </div>
@@ -99,6 +172,9 @@ export function CustomersTab() {
               </td>
               <td style={cell}>{formatTime(c.created_at)}</td>
               <td style={cell}>{formatTime(c.last_login)}</td>
+              <td style={cell}>
+                <CustomerActions customer={c} onChanged={(message) => { setNotice(message); setReload((n) => n + 1); }} />
+              </td>
             </tr>
           ))}
         </Table>

@@ -25,5 +25,6 @@ export interface Env {
   GOOGLE_OAUTH_STATE_SECRET: string; // set via `wrangler secret put`, HMAC key for signing OAuth state + pending-signup tokens (any long random string)
   REVENUECAT_WEBHOOK_AUTHORIZATION: string; // exact Authorization value configured in RevenueCat's webhook integration
   WATCHDOG_KEY?: string; // set via `wrangler secret put`, shared with the GitHub Actions watchdog (X-Watchdog-Key)
+  CUSTOMER_ADMIN_EMAIL?: string; // the one login allowed to deactivate or delete customers (src/customer-admin.ts)
   OPS_ALERT_PHONE?: string; // E.164 operator number paged by src/ops.ts when a customer's monitoring goes down
 }
