@@ -1,7 +1,7 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError, DexcomRateLimitError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, type AlertType, type Person } from "./lib/alerts";
+import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, CRON_JITTER_GRACE_SECONDS, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { normalizeCallLanguage } from "./lib/voice-i18n";
@@ -35,6 +35,64 @@ const DEXCOM_RATE_LIMIT_BACKOFF_SECONDS = 30 * 60;
 // Calls repeat every 5 min while low and unacknowledged (a person pressing
 // 1 on the call stops further repeats until the tier returns to safe).
 const LOW_CALL_REPEAT_SECONDS = 5 * 60;
+
+// A low that arrived in a batch and already recovered still gets a call, but
+// not one from a backlog so old (e.g. after a Dexcom outage) it's just noise.
+const MISSED_LOW_CALL_WINDOW_SECONDS = 15 * 60;
+
+function formatReadingTime(recordedAt: number, timezone: string | null): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone ?? "UTC",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(recordedAt * 1000));
+}
+
+/**
+ * Rings every call-enabled contact at once, and independently of the WhatsApp
+ * cooldown, so a skipped message can never also skip a call. One contact's
+ * failure doesn't affect the others.
+ */
+async function placeLowCalls(
+  person: PersonRow,
+  subscribers: { phone_number: string; call_on_low: number; call_language: string }[],
+  value: number,
+  recordedAt: number,
+  now: number,
+  env: Env
+): Promise<void> {
+  const callable = subscribers.filter((sub) => sub.call_on_low);
+  if (callable.length === 0) return;
+
+  const dueForRepeat =
+    !person.last_low_call_at || now - person.last_low_call_at >= LOW_CALL_REPEAT_SECONDS - CRON_JITTER_GRACE_SECONDS;
+  const dueForEscalation = classifyTier(person, value) === "critical_low" && !person.low_call_critical_escalated;
+  if (!dueForRepeat && !dueForEscalation) return;
+
+  const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}`;
+  const time = formatReadingTime(recordedAt, person.timezone);
+  await Promise.all(
+    callable.map(async (sub) => {
+      const language = normalizeCallLanguage(sub.call_language);
+      const callMessage = callMessageFor(person.name, value, time, language);
+      try {
+        await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env, language);
+      } catch (err) {
+        console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
+        await logError(env, "voice", person.id, err);
+      }
+    })
+  );
+
+  await env.DB
+    .prepare(
+      `UPDATE people SET last_low_call_at = ?, low_call_critical_escalated = MAX(low_call_critical_escalated, ?) WHERE id = ?`
+    )
+    .bind(now, dueForEscalation ? 1 : 0, person.id)
+    .run();
+}
 
 async function cacheSession(
   person: PersonRow,
@@ -199,6 +257,8 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   // says there is no new alert, so an unacknowledged mobile episode repeats.
   await updateMobileAlertEpisode(env, person, value, trend, recordedAt, now);
 
+  const lowCallAcknowledged = person.low_call_acknowledged;
+
   // Reset low-call escalation state as soon as we're back in a safe tier,
   // regardless of whether a "recovered" message also happens to fire this
   // poll -- otherwise a future low episode could inherit a stale
@@ -228,13 +288,14 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
   // The reading's actual time, not "now" -- otherwise a repeated alert on a
   // stale value looks like fresh data is still arriving every cooldown tick.
-  const time = new Intl.DateTimeFormat("en-US", {
-    timeZone: person.timezone ?? "UTC",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(recordedAt * 1000));
+  const time = formatReadingTime(recordedAt, person.timezone);
+
+  const callReading = isLowTier
+    ? { value, timestamp: recordedAt }
+    : newReadings.filter((r) => r.value < person.safe_low && now - r.timestamp <= MISSED_LOW_CALL_WINDOW_SECONDS).pop();
+  if (callReading && !lowCallAcknowledged) {
+    await placeLowCalls(person, subscribers.results, callReading.value, callReading.timestamp, now, env);
+  }
 
   if (!alertType) {
     // Out-of-range tiers already resend via messageFor() every poll through
@@ -267,14 +328,10 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
         }
       }
 
-      // Cron runs aren't exactly 5 min apart (start time jitters by a minute
-      // or more), so a strict ">= interval" check misses every other tick at
-      // a 5-min setting and the ticker lands every 10 min. Allow 90s of slack.
-      const TICKER_JITTER_GRACE_SECONDS = 90;
       const tickerIntervalSeconds = person.ticker_interval_minutes * 60;
       const dueForTicker =
         !person.last_glucose_ticker_at ||
-        now - person.last_glucose_ticker_at >= tickerIntervalSeconds - TICKER_JITTER_GRACE_SECONDS;
+        now - person.last_glucose_ticker_at >= tickerIntervalSeconds - CRON_JITTER_GRACE_SECONDS;
       if (dueForTicker) {
         const variables = tickerVariables(person.name, value, trend, time);
         let sentAnyone = false;
@@ -329,36 +386,6 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     .prepare(`INSERT INTO alerts_log (person_id, type, value_mgdl, sent_at) VALUES (?, ?, ?, ?)`)
     .bind(person.id, alertType, value, now)
     .run();
-
-  if (isLowTier && !person.low_call_acknowledged) {
-    const dueForRepeat = !person.last_low_call_at || now - person.last_low_call_at >= LOW_CALL_REPEAT_SECONDS;
-    const dueForEscalation = tier === "critical_low" && !person.low_call_critical_escalated;
-
-    if (dueForRepeat || dueForEscalation) {
-      const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}`;
-      let calledAnyone = false;
-      for (const sub of subscribers.results) {
-        if (!sub.call_on_low) continue;
-        calledAnyone = true;
-        const language = normalizeCallLanguage(sub.call_language);
-        const callMessage = callMessageFor(person.name, value, time, language);
-        try {
-          await makeVoiceCall(sub.phone_number, callMessage, actionUrl, env, language);
-        } catch (err) {
-          console.error(`makeVoiceCall failed for ${person.id} -> ${sub.phone_number}:`, err);
-          await logError(env, "voice", person.id, err);
-        }
-      }
-      if (calledAnyone) {
-        await env.DB
-          .prepare(
-            `UPDATE people SET last_low_call_at = ?, low_call_critical_escalated = MAX(low_call_critical_escalated, ?) WHERE id = ?`
-          )
-          .bind(now, dueForEscalation ? 1 : 0, person.id)
-          .run();
-      }
-    }
-  }
 }
 
 export async function pollAll(env: Env): Promise<void> {

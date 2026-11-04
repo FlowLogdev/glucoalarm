@@ -90,11 +90,15 @@ export function isStale(nowSeconds: number, lastReceivedAt: number, staleMinutes
   return nowSeconds - lastReceivedAt > staleMinutes * 60;
 }
 
+// Cron runs aren't exactly 5 min apart -- a poll landing at 299s against a
+// 300s cooldown skipped the 89 mg/dL low entirely on 2026-11-03.
+export const CRON_JITTER_GRACE_SECONDS = 90;
+
 export function isInCooldown(
   nowSeconds: number,
   alertType: AlertType,
   lastSameTypeAlertAt: number | null
 ): boolean {
   if (lastSameTypeAlertAt === null) return false;
-  return nowSeconds - lastSameTypeAlertAt < COOLDOWN_SECONDS[alertType];
+  return nowSeconds - lastSameTypeAlertAt < COOLDOWN_SECONDS[alertType] - CRON_JITTER_GRACE_SECONDS;
 }

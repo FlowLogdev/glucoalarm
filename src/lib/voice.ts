@@ -13,17 +13,7 @@ export function escapeXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
-// This Twilio account is capped at 1 call at a time (CPS + concurrency) until
-// its Business Profile is approved -- placing multiple calls back-to-back
-// gets the later ones rejected with "Call concurrency limit exceeded." Ring
-// timeout is capped explicitly (CALL_RING_TIMEOUT_SECONDS) and our own TwiML
-// is bounded (one <Gather> plus at most two <Say> reads), so a call is never
-// active much past CALL_ACTIVE_WINDOW_MS -- wait that long before returning
-// so the next call in priority order doesn't collide. Deliberately not
-// polling Twilio's Call resource for real status: Workers caps subrequests
-// per invocation, and polling for 3 calls in a row blew through that limit.
 const CALL_RING_TIMEOUT_SECONDS = 20;
-const CALL_ACTIVE_WINDOW_MS = 30_000;
 
 /**
  * Places a real phone call reading the alert aloud via Twilio's Voice API,
@@ -51,6 +41,8 @@ export async function makeVoiceCall(
   const actionUrlWithLanguage = `${actionUrl}${actionUrl.includes("?") ? "&" : "?"}call_language=${language}`;
   const twiml =
     `<Response>` +
+    // The audio path can take a moment after pickup -- don't lose the opening words.
+    `<Pause length="1"/>` +
     `<Gather numDigits="1" timeout="10" action="${escapeXml(actionUrlWithLanguage)}" method="POST">${say}</Gather>` +
     say +
     `</Response>`;
@@ -77,8 +69,6 @@ export async function makeVoiceCall(
   }
   const call = await res.json<{ sid: string; status: string }>();
   await recordMessage(env, { channel: "voice", to, kind: "low glucose call", sid: call.sid, status: call.status });
-
-  await new Promise((resolve) => setTimeout(resolve, CALL_ACTIVE_WINDOW_MS));
 }
 
 const ACK_PROMPT: Record<CallLanguage, string> = {
