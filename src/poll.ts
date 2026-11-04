@@ -1,7 +1,7 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError, DexcomRateLimitError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyAlert, classifyTier, isStale, isInCooldown, shouldWarnFastDrop, CRON_JITTER_GRACE_SECONDS, type AlertType, type Person } from "./lib/alerts";
+import { classifyAlert, classifyTier, isLowCallSilenced, isStale, isInCooldown, shouldWarnFastDrop, CRON_JITTER_GRACE_SECONDS, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
 import { makeVoiceCall, callMessageFor } from "./lib/voice";
 import { normalizeCallLanguage } from "./lib/voice-i18n";
@@ -16,6 +16,8 @@ export interface PersonRow extends Person {
   dexcom_password: string; // AES-GCM encrypted, see src/lib/crypto.ts
   dexcom_session_id: string | null;
   dexcom_session_expires_at: number | null;
+  dexcom_backoff_until: number | null;
+  dexcom_backoff_strikes: number;
   timezone: string | null;
   last_low_call_at: number | null;
   low_call_acknowledged: number;
@@ -28,12 +30,19 @@ export interface PersonRow extends Person {
 // Re-authenticate a bit before Dexcom's ~24h session expiry rather than at it.
 const SESSION_TTL_SECONDS = 23 * 60 * 60;
 
-// After a Dexcom 429, stop logging in for a while -- retrying every 5-min
-// cron tick kept the per-account limit from ever clearing (2026-10-28).
-const DEXCOM_RATE_LIMIT_BACKOFF_SECONDS = 30 * 60;
+// After a Dexcom 429, pause polling -- retrying every 5-min cron tick kept
+// the per-account limit from ever clearing (2026-10-28). Starts short because
+// every minute here is a minute a real low can't be seen, and steps up only
+// if the retry is limited too. A successful read resets it.
+const DEXCOM_RATE_LIMIT_BACKOFF_STEPS_SECONDS = [10 * 60, 20 * 60, 30 * 60];
+
+// Ends the backoff a little early so cron jitter can't push the retry a whole
+// tick later (a 10-min pause turning into 15).
+const DEXCOM_BACKOFF_JITTER_SECONDS = 45;
 
 // Calls repeat every 5 min while low and unacknowledged (a person pressing
-// 1 on the call stops further repeats until the tier returns to safe).
+// 1 stops repeats at that severity or milder -- see isLowCallSilenced -- until
+// the tier returns to safe).
 const LOW_CALL_REPEAT_SECONDS = 5 * 60;
 
 // A low that arrived in a batch and already recovered still gets a call, but
@@ -71,7 +80,8 @@ async function placeLowCalls(
   const dueForEscalation = classifyTier(person, value) === "critical_low" && !person.low_call_critical_escalated;
   if (!dueForRepeat && !dueForEscalation) return;
 
-  const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}`;
+  const ackLevel = classifyTier(person, value) === "critical_low" ? "critical" : "warn";
+  const actionUrl = `${env.PUBLIC_WORKER_URL}/api/calls/ack?person_id=${encodeURIComponent(person.id)}&ack_level=${ackLevel}`;
   const time = formatReadingTime(recordedAt, person.timezone);
   await Promise.all(
     callable.map(async (sub) => {
@@ -142,29 +152,39 @@ async function fetchDexcomReadings(
   const client = new DexcomShareClient(env.DEXCOM_BASE_URL, env.DEXCOM_APPLICATION_ID);
   const minutes = lastRecordedAt ? Math.ceil((now - lastRecordedAt) / 60) + 2 : 1440;
 
-  // A null session with a future expiry is a rate-limit backoff marker
-  // (set below) -- skip Dexcom entirely until it passes.
-  if (!person.dexcom_session_id && person.dexcom_session_expires_at && now < person.dexcom_session_expires_at) {
+  if (person.dexcom_backoff_until && now < person.dexcom_backoff_until) {
     return [];
   }
 
   try {
+    let readings: Reading[];
     let sessionId = await getSession(person, env, client, now);
     try {
-      return await client.getLatestReadings(sessionId, minutes);
+      readings = await client.getLatestReadings(sessionId, minutes);
     } catch (err) {
       if (!(err instanceof DexcomSessionError)) throw err;
       // Cached session was rejected — re-authenticate once and retry.
       sessionId = await authenticate(person, env, client, now);
-      return await client.getLatestReadings(sessionId, minutes);
+      readings = await client.getLatestReadings(sessionId, minutes);
     }
+    if (person.dexcom_backoff_strikes || person.dexcom_backoff_until) {
+      await env.DB
+        .prepare(`UPDATE people SET dexcom_backoff_until = NULL, dexcom_backoff_strikes = 0 WHERE id = ?`)
+        .bind(person.id)
+        .run();
+    }
+    return readings;
   } catch (err) {
     if (!(err instanceof DexcomRateLimitError)) throw err;
-    console.error(`Dexcom rate-limited ${person.id}, backing off ${DEXCOM_RATE_LIMIT_BACKOFF_SECONDS}s:`, err);
+    const steps = DEXCOM_RATE_LIMIT_BACKOFF_STEPS_SECONDS;
+    const backoff = steps[Math.min(person.dexcom_backoff_strikes, steps.length - 1)];
+    console.error(`Dexcom rate-limited ${person.id}, backing off ${backoff}s:`, err);
     await logError(env, "dexcom", person.id, err);
+    // The session stays cached: a 429 doesn't invalidate it, and logging in
+    // again would only add requests while we're being limited.
     await env.DB
-      .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = ? WHERE id = ?`)
-      .bind(now + DEXCOM_RATE_LIMIT_BACKOFF_SECONDS, person.id)
+      .prepare(`UPDATE people SET dexcom_backoff_until = ?, dexcom_backoff_strikes = dexcom_backoff_strikes + 1 WHERE id = ?`)
+      .bind(now + backoff - DEXCOM_BACKOFF_JITTER_SECONDS, person.id)
       .run();
     return [];
   }
@@ -290,10 +310,16 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   // stale value looks like fresh data is still arriving every cooldown tick.
   const time = formatReadingTime(recordedAt, person.timezone);
 
-  const callReading = isLowTier
-    ? { value, timestamp: recordedAt }
-    : newReadings.filter((r) => r.value < person.safe_low && now - r.timestamp <= MISSED_LOW_CALL_WINDOW_SECONDS).pop();
-  if (callReading && !lowCallAcknowledged) {
+  // A critical reading inside a batch outranks a milder latest value, so a
+  // drop to 49 that's already rising to 80 still breaks through a warn ack.
+  const recentLows = newReadings.filter((r) => r.value < person.safe_low && now - r.timestamp <= MISSED_LOW_CALL_WINDOW_SECONDS);
+  const current = isLowTier ? { value, timestamp: recordedAt } : undefined;
+  const callReading =
+    (tier === "critical_low" ? current : undefined) ??
+    recentLows.filter((r) => classifyTier(person, r.value) === "critical_low").pop() ??
+    current ??
+    recentLows.pop();
+  if (callReading && !isLowCallSilenced(lowCallAcknowledged, classifyTier(person, callReading.value))) {
     await placeLowCalls(person, subscribers.results, callReading.value, callReading.timestamp, now, env);
   }
 

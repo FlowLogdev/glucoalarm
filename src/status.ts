@@ -82,17 +82,18 @@ export async function restartService(env: Env, personId: string, now: number, fo
   const person = await env.DB.prepare(`SELECT * FROM people WHERE id = ?`).bind(personId).first<PersonRow>();
   if (!person) return null;
 
-  // Keep poll.ts's Dexcom rate-limit backoff (null session + future expiry)
+  // Keep poll.ts's Dexcom rate-limit backoff (dexcom_backoff_until)
   // unless an operator forces it -- a customer mashing Restart would
   // otherwise re-trigger the 429 the backoff is waiting out.
-  const inBackoff = !person.dexcom_session_id && !!person.dexcom_session_expires_at && now < person.dexcom_session_expires_at;
+  const inBackoff = !!person.dexcom_backoff_until && now < person.dexcom_backoff_until;
   if (force || !inBackoff) {
     await env.DB
-      .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = NULL WHERE id = ?`)
+      .prepare(`UPDATE people SET dexcom_session_id = NULL, dexcom_session_expires_at = NULL, dexcom_backoff_until = NULL WHERE id = ?`)
       .bind(personId)
       .run();
     person.dexcom_session_id = null;
     person.dexcom_session_expires_at = null;
+    person.dexcom_backoff_until = null;
   }
 
   try {

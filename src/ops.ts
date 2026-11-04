@@ -32,6 +32,8 @@ export async function pruneErrorLog(env: Env, now: number): Promise<void> {
   await env.DB.prepare(`DELETE FROM error_log WHERE created_at < ?`).bind(now - ERROR_LOG_RETENTION_SECONDS).run();
 }
 
+const OPS_DOWN_MIN_STALE_MINUTES = 20;
+
 export interface Diagnosis {
   severity: "critical" | "warning" | "info";
   cause: string;
@@ -48,7 +50,7 @@ export function diagnose(status: PersonStatus, message: string | null, inDexcomB
   const severity = status === "down" || status === "no_data" ? "critical" : "warning";
   // The backoff marker itself proves a 429, even if it predates error_log.
   if (inDexcomBackoff || (message && /\(429\)|too many requests/i.test(message))) {
-    return { severity, cause: "Dexcom is rate-limiting logins for this account (HTTP 429).", fix: "Automatic: the poller waits 30 min between login attempts. If it lasts for hours, check that no other app (Sugarmate, Nightscout, xDrip, a watch app) logs in with this Dexcom username/password." };
+    return { severity, cause: "Dexcom is rate-limiting this account (HTTP 429).", fix: "Automatic: the poller waits 10-30 min between attempts. If it lasts for hours, check that no other app (Sugarmate, Nightscout, xDrip, a watch app) logs in with this Dexcom username/password." };
   }
   if (message) {
     if (/AccountPasswordInvalid|invalid credentials/i.test(message)) {
@@ -109,7 +111,7 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
   // idx_readings_person_recorded instead of scanning every reading.
   const rows = await env.DB
     .prepare(
-      `SELECT p.id, p.name, p.stale_minutes, p.dexcom_session_id, p.dexcom_session_expires_at,
+      `SELECT p.id, p.name, p.stale_minutes, p.dexcom_backoff_until,
               c.id AS customer_id, c.display_name AS customer_name, c.subscription_status, c.is_app_review_demo,
               (SELECT COUNT(*) FROM phone_subscribers s WHERE s.person_id = p.id) AS subscribers,
               (SELECT received_at FROM readings r WHERE r.person_id = p.id ORDER BY recorded_at DESC LIMIT 1) AS last_reading_at,
@@ -121,8 +123,7 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
       id: string;
       name: string;
       stale_minutes: number;
-      dexcom_session_id: string | null;
-      dexcom_session_expires_at: number | null;
+      dexcom_backoff_until: number | null;
       customer_id: string;
       customer_name: string;
       subscription_status: string;
@@ -147,7 +148,9 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
     if (row.is_app_review_demo) status = "demo";
     else if (row.subscription_status !== "active") status = "inactive";
     else if (row.last_reading_at == null) status = "no_data";
-    else if (isStale(now, row.last_reading_at, row.stale_minutes)) status = "down";
+    // Operator paging keeps its own floor: stale_minutes now warns caregivers
+    // on gaps short enough to recover by themselves, which shouldn't page ops.
+    else if (isStale(now, row.last_reading_at, Math.max(row.stale_minutes, OPS_DOWN_MIN_STALE_MINUTES))) status = "down";
     else if (lastError && now - lastError.created_at < RECENT_ERROR_SECONDS) status = "degraded";
     else status = "ok";
 
@@ -157,9 +160,7 @@ export async function scanHealth(env: Env, now: number): Promise<PersonHealth[]>
         ? lastError
         : null;
 
-    // poll.ts's rate-limit backoff marker: null session + future expiry.
-    const dexcomRetryAfter =
-      !row.dexcom_session_id && row.dexcom_session_expires_at && row.dexcom_session_expires_at > now ? row.dexcom_session_expires_at : null;
+    const dexcomRetryAfter = row.dexcom_backoff_until && row.dexcom_backoff_until > now ? row.dexcom_backoff_until : null;
 
     results.push({
       person_id: row.id,

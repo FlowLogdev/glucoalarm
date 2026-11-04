@@ -90,6 +90,15 @@ export function isStale(nowSeconds: number, lastReceivedAt: number, staleMinutes
   return nowSeconds - lastReceivedAt > staleMinutes * 60;
 }
 
+// people.low_call_acknowledged: an ack only silences its own severity or
+// milder, so pressing 1 at 85 can't silence calls for a later drop to 49.
+export const LOW_CALL_ACK_WARN = 1;
+export const LOW_CALL_ACK_CRITICAL = 2;
+
+export function isLowCallSilenced(acknowledged: number, tier: Tier): boolean {
+  return acknowledged >= LOW_CALL_ACK_CRITICAL || (acknowledged === LOW_CALL_ACK_WARN && tier !== "critical_low");
+}
+
 // Cron runs aren't exactly 5 min apart -- a poll landing at 299s against a
 // 300s cooldown skipped the 89 mg/dL low entirely on 2026-11-03.
 export const CRON_JITTER_GRACE_SECONDS = 90;

@@ -70,7 +70,9 @@ export class DexcomShareClient implements DexcomClient {
         throw new DexcomSessionError(code);
       }
       if (res.status === 429) {
-        throw new DexcomRateLimitError(`Dexcom API error (429): ${text}`);
+        // Path without its query string -- the read URL carries the session ID.
+        const retryAfter = res.headers.get("Retry-After") ?? "not sent";
+        throw new DexcomRateLimitError(`Dexcom API error (429) on ${path.split("?")[0]}, Retry-After ${retryAfter}: ${text}`);
       }
       throw new DexcomApiError(`Dexcom API error (${res.status}): ${text}`);
     }

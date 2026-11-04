@@ -72,9 +72,9 @@ export async function makeVoiceCall(
 }
 
 const ACK_PROMPT: Record<CallLanguage, string> = {
-  en: "Please acknowledge by pressing 1. If you press 1, you will not receive more calls for this low.",
-  es: "Por favor confirme presionando 1. Si presiona 1, no recibirá más llamadas por este nivel bajo.",
-  pt: "Por favor confirme pressionando 1. Se pressionar 1, você não receberá mais ligações sobre este nível baixo.",
+  en: "Please acknowledge by pressing 1. This stops repeat calls for this level.",
+  es: "Por favor confirme presionando 1. Esto detiene las llamadas repetidas para este nivel.",
+  pt: "Por favor confirme pressionando 1. Isso interrompe as ligações repetidas para este nível.",
 };
 
 const ALERT_TEMPLATES: Record<CallLanguage, (name: string, value: number, time: string) => string> = {

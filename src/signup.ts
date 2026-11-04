@@ -224,7 +224,7 @@ export async function postPeople(env: Env, request: Request, admin: Admin, now: 
     .prepare(
       `INSERT INTO people
         (id, name, dexcom_username, dexcom_password, customer_id, safe_low, safe_high, critical_low, critical_high, stale_minutes, ticker_interval_minutes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 20, 20)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 14, 20)`
     )
     .bind(
       personId,
