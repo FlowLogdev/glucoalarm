@@ -91,17 +91,17 @@ const ALERT_TEMPLATES: Record<CallLanguage, (name: string, value: number, time: 
     `Este é um alerta do Glucoalarm. O nível de glicose de ${name} está baixo, ${value} miligramas por decilitro, registrado às ${time}.`,
 };
 
-const SIGNAL_LOST_TEMPLATES: Record<CallLanguage, (name: string, value: number, time: string) => string> = {
-  en: (name, value, time) =>
-    `This is an alert from Glucoalarm. We have lost the Dexcom signal for ${name}, so the current glucose is unknown. The last reading was ${value} milligrams per deciliter at ${time}, and it may no longer be accurate. Please check with a finger stick.`,
-  es: (name, value, time) =>
-    `Esta es una alerta de Glucoalarm. Hemos perdido la señal de Dexcom de ${name}, por lo que no se conoce la glucosa actual. La última lectura fue de ${value} miligramos por decilitro a las ${time}, y puede que ya no sea correcta. Por favor verifique con una prueba en el dedo.`,
-  pt: (name, value, time) =>
-    `Este é um alerta do Glucoalarm. Perdemos o sinal do Dexcom de ${name}, então a glicose atual é desconhecida. A última leitura foi de ${value} miligramas por decilitro às ${time}, e pode não estar mais correta. Por favor, confirme com um teste no dedo.`,
+const SIGNAL_LOST_TEMPLATES: Record<CallLanguage, (name: string) => string> = {
+  en: (name) =>
+    `This is an alert from Glucoalarm. We have lost the Dexcom signal for ${name}, so the current glucose is unknown. Please check with a finger stick.`,
+  es: (name) =>
+    `Esta es una alerta de Glucoalarm. Hemos perdido la señal de Dexcom de ${name}, por lo que no se conoce la glucosa actual. Por favor verifique con una prueba en el dedo.`,
+  pt: (name) =>
+    `Este é um alerta do Glucoalarm. Perdemos o sinal do Dexcom de ${name}, então a glicose atual é desconhecida. Por favor, confirme com um teste no dedo.`,
 };
 
-export function signalLostCallMessageFor(name: string, value: number, time: string, language: CallLanguage = "en"): string {
-  return SIGNAL_LOST_TEMPLATES[normalizeCallLanguage(language)](name, value, time);
+export function signalLostCallMessageFor(name: string, language: CallLanguage = "en"): string {
+  return SIGNAL_LOST_TEMPLATES[normalizeCallLanguage(language)](name);
 }
 
 export function callMessageFor(name: string, value: number, time: string, language: CallLanguage = "en"): string {

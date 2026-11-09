@@ -102,22 +102,18 @@ async function placeLowCalls(
 
 /**
  * Once per outage, when the last reading was low: says plainly that glucose is
- * unknown. Replaces the repeat low calls, which would keep announcing the old
- * number as current. Nothing to acknowledge, and doesn't touch low-call state.
+ * unknown, and quotes no number. Nothing to acknowledge.
  */
 async function placeSignalLostCalls(
   person: PersonRow,
   subscribers: { phone_number: string; call_on_low: number; call_language: string }[],
-  lastValue: number,
-  recordedAt: number,
   env: Env
 ): Promise<void> {
-  const time = formatReadingTime(recordedAt, person.timezone);
   await Promise.all(
     subscribers.filter((sub) => sub.call_on_low).map(async (sub) => {
       const language = normalizeCallLanguage(sub.call_language);
       try {
-        await makeVoiceCall(sub.phone_number, signalLostCallMessageFor(person.name, lastValue, time, language), null, env, language);
+        await makeVoiceCall(sub.phone_number, signalLostCallMessageFor(person.name, language), null, env, language);
       } catch (err) {
         console.error(`makeVoiceCall (signal lost) failed for ${person.id} -> ${sub.phone_number}:`, err);
         await logError(env, "voice", person.id, err);
@@ -285,6 +281,18 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   // returns nothing.
   const readingActionable = isReadingActionable(now, recordedAt);
 
+  // An outage ends the episode: a press-1 from before it says nothing about
+  // whatever new data shows, so calls start over on the first real reading.
+  if (!readingActionable && (person.low_call_acknowledged || person.low_call_critical_escalated || person.last_low_call_at)) {
+    await env.DB
+      .prepare(`UPDATE people SET low_call_acknowledged = 0, low_call_critical_escalated = 0, last_low_call_at = NULL WHERE id = ?`)
+      .bind(person.id)
+      .run();
+    person.low_call_acknowledged = 0;
+    person.low_call_critical_escalated = 0;
+    person.last_low_call_at = null;
+  }
+
   let alertType: AlertType | null = null;
 
   if (isStale(now, lastReceivedAt, person.stale_minutes)) {
@@ -351,7 +359,7 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
   }
 
   if (alertType === "signal_lost" && lastAlert?.type !== "signal_lost" && isLowTier) {
-    await placeSignalLostCalls(person, subscribers.results, value, recordedAt, env);
+    await placeSignalLostCalls(person, subscribers.results, env);
   }
 
   if (!alertType) {

@@ -1,4 +1,4 @@
-import { isStale } from "./lib/alerts";
+import { isReadingActionable, isStale } from "./lib/alerts";
 import { sendWhatsApp } from "./lib/whatsapp";
 import type { Env } from "./types";
 
@@ -232,7 +232,7 @@ export async function runOpsChecks(env: Env, now: number): Promise<void> {
           {
             "1": headline.slice(0, 200),
             "2": `${h.name} (${h.customer_name})`,
-            "3": h.last_value != null ? String(h.last_value) : "N/A",
+            "3": h.last_value != null && h.last_reading_at != null && isReadingActionable(now, h.last_reading_at) ? String(h.last_value) : "N/A",
             "4": "N/A",
             "5": "Details: logs.glucoalarm.com",
           },

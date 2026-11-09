@@ -1,4 +1,4 @@
-import { classifyTier, isStale, type Person, type Tier } from "./lib/alerts";
+import { classifyTier, isReadingActionable, isStale, type Person, type Tier } from "./lib/alerts";
 import { bearerToken, getSessionAdmin, login, logout, type Admin } from "./auth";
 import { getReport, REPORT_PERIODS, type ReportPeriod } from "./reports";
 import { getA1CEstimates } from "./a1c";
@@ -136,10 +136,14 @@ async function getLatest(env: Env, personId: string, now: number): Promise<Respo
     .bind(personId)
     .first<{ value_mgdl: number; trend: string; recorded_at: number; received_at: number }>();
 
+  // Past the cutoff the dashboards get no number at all rather than an old one
+  // beside a "signal lost" label. History still has it, with its real time.
+  const outdated = !!reading && !isReadingActionable(now, reading.recorded_at);
+
   return jsonResponse({
     person,
-    reading: reading ?? null,
-    status: computeStatus(person, reading, now),
+    reading: outdated ? null : reading ?? null,
+    status: outdated ? "stale" : computeStatus(person, reading, now),
     now,
   });
 }
