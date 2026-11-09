@@ -1,9 +1,9 @@
 import { MockDexcomClient } from "./lib/dexcom-client-mock";
 import { DexcomShareClient, DexcomSessionError, DexcomRateLimitError } from "./lib/dexcom-client-share";
 import type { DexcomClient, Reading } from "./lib/dexcom-client";
-import { classifyAlert, classifyTier, isLowCallSilenced, isStale, isInCooldown, shouldWarnFastDrop, CRON_JITTER_GRACE_SECONDS, type AlertType, type Person } from "./lib/alerts";
+import { classifyAlert, classifyTier, isLowCallSilenced, isReadingActionable, isStale, isInCooldown, shouldWarnFastDrop, CRON_JITTER_GRACE_SECONDS, type AlertType, type Person } from "./lib/alerts";
 import { sendWhatsApp, alertVariables, tickerVariables } from "./lib/whatsapp";
-import { makeVoiceCall, callMessageFor } from "./lib/voice";
+import { makeVoiceCall, callMessageFor, signalLostCallMessageFor } from "./lib/voice";
 import { normalizeCallLanguage } from "./lib/voice-i18n";
 import { isSubscriberActiveNow, type SubscriberSchedule } from "./lib/schedule";
 import { decrypt } from "./lib/crypto";
@@ -44,10 +44,6 @@ const DEXCOM_BACKOFF_JITTER_SECONDS = 45;
 // 1 stops repeats at that severity or milder -- see isLowCallSilenced -- until
 // the tier returns to safe).
 const LOW_CALL_REPEAT_SECONDS = 5 * 60;
-
-// A low that arrived in a batch and already recovered still gets a call, but
-// not one from a backlog so old (e.g. after a Dexcom outage) it's just noise.
-const MISSED_LOW_CALL_WINDOW_SECONDS = 15 * 60;
 
 function formatReadingTime(recordedAt: number, timezone: string | null): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -102,6 +98,32 @@ async function placeLowCalls(
     )
     .bind(now, dueForEscalation ? 1 : 0, person.id)
     .run();
+}
+
+/**
+ * Once per outage, when the last reading was low: says plainly that glucose is
+ * unknown. Replaces the repeat low calls, which would keep announcing the old
+ * number as current. Nothing to acknowledge, and doesn't touch low-call state.
+ */
+async function placeSignalLostCalls(
+  person: PersonRow,
+  subscribers: { phone_number: string; call_on_low: number; call_language: string }[],
+  lastValue: number,
+  recordedAt: number,
+  env: Env
+): Promise<void> {
+  const time = formatReadingTime(recordedAt, person.timezone);
+  await Promise.all(
+    subscribers.filter((sub) => sub.call_on_low).map(async (sub) => {
+      const language = normalizeCallLanguage(sub.call_language);
+      try {
+        await makeVoiceCall(sub.phone_number, signalLostCallMessageFor(person.name, lastValue, time, language), null, env, language);
+      } catch (err) {
+        console.error(`makeVoiceCall (signal lost) failed for ${person.id} -> ${sub.phone_number}:`, err);
+        await logError(env, "voice", person.id, err);
+      }
+    })
+  );
 }
 
 async function cacheSession(
@@ -258,11 +280,16 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     .bind(person.id)
     .first<{ type: AlertType; sent_at: number }>();
 
+  // Everything below that speaks about glucose as current checks this.
+  // `value` falls back to the last stored reading, however old, when Dexcom
+  // returns nothing.
+  const readingActionable = isReadingActionable(now, recordedAt);
+
   let alertType: AlertType | null = null;
 
   if (isStale(now, lastReceivedAt, person.stale_minutes)) {
     alertType = "signal_lost";
-  } else {
+  } else if (readingActionable) {
     alertType = classifyAlert(person, value, lastAlert?.type ?? null);
     if (!alertType && lastAlert?.type === "signal_lost") {
       alertType = "signal_restored";
@@ -312,8 +339,8 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
   // A critical reading inside a batch outranks a milder latest value, so a
   // drop to 49 that's already rising to 80 still breaks through a warn ack.
-  const recentLows = newReadings.filter((r) => r.value < person.safe_low && now - r.timestamp <= MISSED_LOW_CALL_WINDOW_SECONDS);
-  const current = isLowTier ? { value, timestamp: recordedAt } : undefined;
+  const recentLows = newReadings.filter((r) => r.value < person.safe_low && isReadingActionable(now, r.timestamp));
+  const current = isLowTier && readingActionable ? { value, timestamp: recordedAt } : undefined;
   const callReading =
     (tier === "critical_low" ? current : undefined) ??
     recentLows.filter((r) => classifyTier(person, r.value) === "critical_low").pop() ??
@@ -323,11 +350,15 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
     await placeLowCalls(person, subscribers.results, callReading.value, callReading.timestamp, now, env);
   }
 
+  if (alertType === "signal_lost" && lastAlert?.type !== "signal_lost" && isLowTier) {
+    await placeSignalLostCalls(person, subscribers.results, value, recordedAt, env);
+  }
+
   if (!alertType) {
     // Out-of-range tiers already resend via messageFor() every poll through
     // the cooldown below -- only the safe tier needs an explicit ticker so
     // recipients see a live number instead of silence between tier changes.
-    if (tier === "safe") {
+    if (tier === "safe" && readingActionable) {
       // Early heads-up for a brisk decline while still technically safe --
       // fires independently of the ticker's schedule/cooldown, since this
       // is time-sensitive in a way a routine check-in isn't.
@@ -394,7 +425,11 @@ export async function pollPerson(person: PersonRow, env: Env, now: number): Prom
 
   if (isInCooldown(now, alertType, lastSameTypeAlert?.sent_at ?? null)) return;
 
-  const variables = alertVariables(alertType, person.name, value, trend, person.stale_minutes, time);
+  // The WhatsApp template reads "Current glucose reading is {{3}}", which a
+  // lost signal can't honestly fill in. {{5}} still shows when data stopped.
+  const variables = alertType === "signal_lost"
+    ? alertVariables(alertType, person.name, null, null, person.stale_minutes, time)
+    : alertVariables(alertType, person.name, value, trend, person.stale_minutes, time);
 
   for (const sub of subscribers.results) {
     if (!sub.whatsapp_enabled) continue;

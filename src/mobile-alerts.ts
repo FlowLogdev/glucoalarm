@@ -1,4 +1,5 @@
 import type { Admin } from "./auth";
+import { isReadingActionable } from "./lib/alerts";
 import type { Env } from "./types";
 
 const PUSH_REPEAT_SECONDS = 5 * 60;
@@ -120,7 +121,9 @@ export async function updateMobileAlertEpisode(
   now: number
 ): Promise<void> {
   const active = await getActiveMobileAlert(env, person.id);
-  const stillFalling = isFallingBelowAlertThreshold(value, trend);
+  // An old reading can't show glucose is still falling, so an outage closes
+  // the episode instead of repeating "X and falling" until data returns.
+  const stillFalling = isReadingActionable(now, readingAt) && isFallingBelowAlertThreshold(value, trend);
 
   if (!stillFalling) {
     if (active) {

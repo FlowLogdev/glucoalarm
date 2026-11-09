@@ -86,6 +86,15 @@ export function classifyAlert(
   return tier;
 }
 
+// Past this age a reading says nothing about glucose right now (a fingerstick
+// of 329 during an outage whose last reading was 90, 2026-11-09). Nothing may
+// call, push or message about it as though it were current.
+export const MAX_ACTIONABLE_READING_AGE_SECONDS = 15 * 60;
+
+export function isReadingActionable(nowSeconds: number, recordedAt: number): boolean {
+  return nowSeconds - recordedAt <= MAX_ACTIONABLE_READING_AGE_SECONDS;
+}
+
 export function isStale(nowSeconds: number, lastReceivedAt: number, staleMinutes: number): boolean {
   return nowSeconds - lastReceivedAt > staleMinutes * 60;
 }
